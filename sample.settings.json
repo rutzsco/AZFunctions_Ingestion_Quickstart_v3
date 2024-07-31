@@ -1,0 +1,22 @@
+{
+    "IsEncrypted": false,
+    "Values": {
+      "AzureWebJobsStorage": "",
+      "FUNCTIONS_WORKER_RUNTIME": "python",
+      "AzureWebJobsFeatureFlags": "",
+      "STORAGE_CONN_STR": "",
+      "DOC_INTEL_ENDPOINT": "",
+      "DOC_INTEL_KEY": "",
+      "AOAI_KEY": "",
+      "AOAI_ENDPOINT": "",
+      "AOAI_EMBEDDINGS_MODEL": "",
+      "AOAI_GPT_VISION_MODEL": "",
+      "SEARCH_ENDPOINT": "",
+      "SEARCH_KEY": "",
+      "SEARCH_SERVICE_NAME": "",
+      "COSMOS_ENDPOINT": "",
+      "COSMOS_KEY": "",
+      "COSMOS_DATABASE": "",
+      "COSMOS_PROFILE_CONTAINER": ""
+    }
+}
