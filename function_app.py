@@ -19,6 +19,8 @@ from doc_intelligence_utilities import analyze_pdf, extract_results
 from aoai_utilities import generate_embeddings, classify_image, analyze_image
 from ai_search_utilities import create_vector_index, get_current_index, insert_documents_vector, delete_documents_vector
 from chunking_utils import create_chunks
+import tempfile
+import subprocess
 
 app = df.DFApp(http_auth_level=func.AuthLevel.FUNCTION)
 
@@ -1283,3 +1285,75 @@ def pdf_bytes_to_png_bytes(pdf_bytes, page_number=1):
 
     # Return the BytesIO object containing the PNG image
     return png_bytes_io
+
+
+
+
+
+@app.route(route="convert_file_to_pdf", auth_level=func.AuthLevel.ANONYMOUS)
+def convert_file_to_pdf(req: func.HttpRequest) -> func.HttpResponse:
+    # Get the JSON payload from the request
+    data = req.get_json()
+    # Extract the index stem name from the payload
+    container = data.get("container")
+    filename = data.get("filename")
+
+    updated_filename = filename.split('.')[0] + '.pdf'
+
+    # Create a BlobServiceClient object which will be used to create a container client
+    blob_service_client = BlobServiceClient.from_connection_string(os.environ['STORAGE_CONN_STR'])
+
+    # Get a ContainerClient object for the extracts container
+    container_client = blob_service_client.get_container_client(container=container)
+
+    # Get a BlobClient object for the file
+    blob_client = container_client.get_blob_client(blob=filename)
+
+    # Retrieve the file as a stream and load the bytes
+    file_bytes = blob_client.download_blob().readall()
+
+    pdf_bytes = convert_to_pdf_helper(file_bytes)
+
+    # Get a BlobClient object for the converted PDF file
+    pdf_blob_client = container_client.get_blob_client(blob=updated_filename)
+
+    # Upload the PDF file
+    pdf_blob_client.upload_blob(pdf_bytes, overwrite=True)
+
+    return json.dumps({'container': container, 'filename': updated_filename})
+
+def convert_to_pdf_helper(input_bytes):
+    """
+    Converts a document to PDF using LibreOffice and returns the PDF as a byte string.
+
+    :param input_bytes: The content of the input document as bytes.
+    :return: The PDF content as a byte string.
+    """
+    # Create a temporary directory
+    with tempfile.TemporaryDirectory() as tmpdirname:
+
+        input_path = os.path.join(tmpdirname, 'temp_input')
+        output_path = os.path.join(tmpdirname, 'temp_input.pdf')
+      
+        # Write the input bytes to the temporary file
+        with open(input_path, 'wb') as f:
+            f.write(input_bytes)
+
+        # Convert the document to PDF using LibreOffice
+        command = [
+            'libreoffice', '--headless', '--convert-to', 'pdf', '--outdir', tmpdirname, input_path
+        ]
+       
+        try:
+            subprocess.run(command, check=True)
+        except Exception as e:
+            print(f"An error occurred: {e}")
+
+        print(os.listdir(tmpdirname))
+
+        # Read the output PDF file as a byte string
+        with open(output_path, 'rb') as f:
+            pdf_bytes = f.read()
+    
+    # Return the PDF bytes
+    return pdf_bytes
