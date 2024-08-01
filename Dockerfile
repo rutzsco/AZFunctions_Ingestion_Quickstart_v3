@@ -9,9 +9,6 @@ RUN apt-get update
 RUN apt-get install -y build-essential libssl-dev libffi-dev python-dev
 RUN apt-get install -y libreoffice
 
-COPY ./fonts /usr/share/fonts/myfonts
-RUN fc-cache -fv
-
 COPY requirements.txt /
 RUN pip install -r /requirements.txt
 
