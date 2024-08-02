@@ -71,7 +71,7 @@ def get_transcription(filename):
     openai.api_version = "2023-09-01-preview"
 
     # Specify the model and deployment ID for the transcription
-    model_name = "whisper-1"
+    model_name = os.environ['AOAI_WHISPER_MODEL_TYPE'] # "whisper-1"
     deployment_id =  os.environ['AOAI_WHISPER_MODEL']
 
     # Specify the language of the audio

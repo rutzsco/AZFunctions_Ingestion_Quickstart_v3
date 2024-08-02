@@ -1616,20 +1616,6 @@ def create_new_index(req: func.HttpRequest) -> func.HttpResponse:
     # Call the function to create a vector index with the specified stem name and fields
     response = create_vector_index(stem_name, fields)
 
-    cosmos_entry= {
-        'index_stem_name': stem_name,
-        'index_name': response,
-        'fields': fields,
-        'description': description,
-        'contains_data': False,
-        'id': response,
-        'ad_groups':[]
-    }
-
-    create_profile_record(cosmos_entry)
-
-    update_profile_record(True, response)
-
     # Return the response
     return response
 
