@@ -11,7 +11,10 @@ import re
 
 import tiktoken
 
-def split_text(text, chunk_size, overlap, tokenizer, segment_size=5):
+def split_text(text, chunk_size, overlap, tokenizer=None, segment_size=5):
+    if tokenizer is None:
+        tokenizer = tiktoken.get_encoding("cl100k_base")
+        
     words = text.split(' ')
     chunks = []
     i = 0

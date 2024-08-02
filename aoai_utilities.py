@@ -83,18 +83,23 @@ def get_transcription(filename):
     # Initialize variable to track if the audio has been transcribed
     transcribed = False
 
+    client = AzureOpenAI(
+        api_key=os.environ['AOAI_WHISPER_KEY'], azure_endpoint=os.environ['AOAI_WHISPER_ENDPOINT'], api_version="2024-02-01"
+    )
+
+
     # Attempt to transcribe the audio, retrying on failure
     while not transcribed:
         try:
-            result = openai.Audio.transcribe(
+            result = client.audio.transcriptions.create(
                 file=open(filename, "rb"),            
-                model=model_name,
-                deployment_id=deployment_id
+                model=deployment_id
             )
             transcript = result.text
             transcribed = True
         except Exception as e:  # Catch any exceptions and retry after a delay
             print(e)
+            logging.error(e)
             time.sleep(10)
             pass
 

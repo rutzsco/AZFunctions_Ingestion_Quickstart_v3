@@ -162,6 +162,15 @@ def pdf_orchestrator(context):
         yield context.call_activity("update_status_record", json.dumps(status_record))
         logging.error(e)
         raise e
+    
+    if len(files) == 0:
+        context.set_custom_status('No PDF Files Found')
+        status_record['status'] = 0
+        status_record['status_message'] = 'No PDF Files Found'
+        status_record['processing_progress'] = 0.0
+        yield context.call_activity("update_status_record", json.dumps(status_record))
+        raise Exception(f'No PDF files found in the source container matching prefix: {prefix_path}.')
+
 
 
     # For each PDF file, split it into single-page chunks and save to pages container
@@ -362,9 +371,7 @@ def pdf_orchestrator(context):
     status_record['status'] = 10
     yield context.call_activity("update_status_record", json.dumps(status_record))
 
-    # Update 
-    yield context.call_activity("update_profile_record", json.dumps({'index_name': latest_index, 'contains_data': True}))
-
+    
     ###################### DATA INDEXING END ######################
 
     ###################### INTERMEDIATE DATA DELETION START ######################
@@ -522,6 +529,14 @@ def audio_video_orchestrator(context):
     status_record['status'] = 1
     yield context.call_activity("update_status_record", json.dumps(status_record))
 
+    if len(files) == 0:
+        context.set_custom_status('No Audio/Video Files Found')
+        status_record['status'] = 0
+        status_record['status_message'] = 'No Audio/Video Files Found'
+        status_record['processing_progress'] = 0.0
+        yield context.call_activity("update_status_record", json.dumps(status_record))
+        raise Exception(f'No audio/video files found in the source container matching prefix: {prefix_path}.')
+
 
 
     ###### UPDATE LOGIC HERE - TRANSCRIBE FILES
@@ -554,8 +569,9 @@ def audio_video_orchestrator(context):
     try:
         chunking_tasks = []
         for file in transcribed_audio_files:
-            chunking_tasks.append(context.call_activity("chunk_transcripts", json.dumps({'parent': file, 'transcripts_container': transcripts_container, 'extract_container': extract_container, 'overlapping_chunks': overlapping_chunks, 'chunk_size': chunk_size, 'overlap': overlap})))
+            chunking_tasks.append(context.call_activity("chunk_audio_video_transcripts", json.dumps({'parent': file, 'transcript_container': transcripts_container, 'extract_container': extract_container, 'overlapping_chunks': overlapping_chunks, 'chunk_size': chunk_size, 'overlap': overlap})))
         chunked_transcript_files = yield context.task_all(chunking_tasks)
+        chunked_transcript_files = [item for sublist in chunked_transcript_files for item in sublist]
     except Exception as e:
         context.set_custom_status('Ingestion Failed During Chunking')
         status_record['status'] = -1
@@ -653,9 +669,6 @@ def audio_video_orchestrator(context):
     status_record['status'] = 10
     yield context.call_activity("update_status_record", json.dumps(status_record))
 
-    # Update 
-    yield context.call_activity("update_profile_record", json.dumps({'index_name': latest_index, 'contains_data': True}))
-
     ###################### DATA INDEXING END ######################
 
     ###################### INTERMEDIATE DATA DELETION START ######################
@@ -664,8 +677,7 @@ def audio_video_orchestrator(context):
 
         try:
             source_files = yield context.call_activity_with_retry("delete_source_files", retry_options, json.dumps({'source_container': source_container,  'prefix': prefix_path}))
-            chunk_files = yield context.call_activity_with_retry("delete_source_files", retry_options, json.dumps({'source_container': pages_container,  'prefix': prefix_path}))
-            doc_intel_result_files = yield context.call_activity_with_retry("delete_source_files", retry_options, json.dumps({'source_container': doc_intel_results_container,  'prefix': prefix_path}))
+            transcript_files = yield context.call_activity_with_retry("delete_source_files", retry_options, json.dumps({'source_container': transcripts_container,  'prefix': prefix_path}))
             extract_files = yield context.call_activity_with_retry("delete_source_files", retry_options, json.dumps({'source_container': extract_container,  'prefix': prefix_path}))
 
             context.set_custom_status('Ingestion & Clean Up Completed')
@@ -800,7 +812,7 @@ def get_source_files(activitypayload: str):
     # For each blob in the container
     for blob in blobs:
         # If the blob's name ends with the specified extension
-        if blob.name.lower() in extensions:
+        if '.' + blob.name.lower().split('.')[-1] in extensions:
             # Append the blob's name to the files list
             files.append(blob.name)
 
@@ -1185,7 +1197,7 @@ def analyze_pages_for_embedded_visuals(activitypayload: str):
     return file_name
 
 @app.activity_trigger(input_name="activitypayload")
-def transcribe_audio_files(activitypayload: str):
+def transcribe_audio_video_files(activitypayload: str):
 
     # Load the activity payload as a JSON string
     data = json.loads(activitypayload)
@@ -1196,7 +1208,7 @@ def transcribe_audio_files(activitypayload: str):
     file = data.get("file")
 
     # Create new file names for the transcript and extract files
-    transcript_file_name = file.split('.')[0] + '.txt'
+    transcript_file_name = file.split('.')[0] + '.json'
     extract_file_name = file.split('.')[0] + '.json'
 
     # Generate a unique ID for the record
@@ -1231,29 +1243,29 @@ def transcribe_audio_files(activitypayload: str):
         with tempfile.NamedTemporaryFile(delete=False, suffix=extension) as temp_file:
             temp_file.write(audio_data)
 
-        print(f'Saved {audio_blob_client.blob_name} to {temp_file.name}\n')
+            print(f'Saved {audio_blob_client.blob_name} to {temp_file.name}\n')
 
-        # Get the path of the temporary file
-        local_audio_file = temp_file.name
+            # Get the path of the temporary file
+            local_audio_file = temp_file.name
 
-        try:
-            # Transcribe the audio file
-            transcript = get_transcription(local_audio_file)
-        except Exception as e:
-            pass
-        finally:
-            # Delete the temporary file
-            os.remove(local_audio_file)
+            try:
+                # Transcribe the audio file
+                transcript = get_transcription(local_audio_file)
+            except Exception as e:
+                print(f'Error transcribing {audio_blob_client.blob_name}: {e}')
+                logging.error(f'Error transcribing {audio_blob_client.blob_name}: {e}')
+                pass
 
-        # Create a record for the transcript
-        record = {
-            'sourcefile': file,
-            'content': transcript,
-            'category': 'audio-video'
-        }
 
-        # Upload the transcript to the transcription results container
-        transcript_blob_client.upload_blob(json.dumps(record), overwrite=True)
+            # Create a record for the transcript
+            record = {
+                'sourcefile': file,
+                'content': transcript,
+                'category': 'audio-video'
+            }
+
+            # Upload the transcript to the transcription results container
+            transcript_blob_client.upload_blob(json.dumps(record), overwrite=True)
 
     # Return the name of the extract file
     return extract_file_name
@@ -1377,7 +1389,7 @@ def chunk_extracts(activitypayload: str):
 
 
 @app.activity_trigger(input_name="activitypayload")
-def chunk_audio_video_extracts(activitypayload: str):
+def chunk_audio_video_transcripts(activitypayload: str):
     """
     UPDATE!!!!
     Analyze a single page in a PDF to determine if there are charts, graphs, etc.
@@ -1447,7 +1459,7 @@ def chunk_audio_video_extracts(activitypayload: str):
                 # Get a BlobClient object for the extracts file
                 final_extract_blob_client = extract_container_client.get_blob_client(blob=filename)
                 final_extract_blob_client.upload_blob(json.dumps(extract_data), overwrite=True)
-                out_files.append(file)
+                out_files.append(filename)
     else:
         for file in transcript_files:
             transcript_blob_client = transcript_container_client.get_blob_client(blob=file)
@@ -1461,7 +1473,7 @@ def chunk_audio_video_extracts(activitypayload: str):
 
             for idx, chunk in enumerate(chunks):
 
-                id_str = chunk + transcript_data['sourcepage'] + str(idx)
+                id_str = chunk + transcript_data['sourcefile'] + str(idx+1)
                 hash_object = hashlib.sha256()
                 hash_object.update(id_str.encode('utf-8'))
                 id = hash_object.hexdigest()
@@ -1470,14 +1482,15 @@ def chunk_audio_video_extracts(activitypayload: str):
                 extract_data['id'] = id
                 extract_data['content'] = chunk
                 extract_data['sourcefile'] = transcript_data['sourcefile']
-                extract_data['chunkcount'] = idx
+                extract_data['chunkcount'] = idx+1
+                extract_data['category'] = transcript_data['category']
 
-                filename = file.split('.')[0] + f'_chunk_{idx}.json'
+                filename = file.split('.')[0] + f'_chunk_{idx+1}.json'
 
                 # Get a BlobClient object for the extracts file
                 final_extract_blob_client = extract_container_client.get_blob_client(blob=filename)
                 final_extract_blob_client.upload_blob(json.dumps(extract_data), overwrite=True)
-                out_files.append(file)
+                out_files.append(filename)
 
     return out_files
 
