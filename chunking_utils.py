@@ -48,33 +48,6 @@ def split_text(text, chunk_size, overlap, tokenizer, segment_size=5):
 
 def create_chunks(chunks_content_dict, chunk_size, overlap):
 
-    # # Create a BlobServiceClient object which will be used to create a container client
-    # blob_service_client = BlobServiceClient.from_connection_string(os.environ['STORAGE_CONN_STR'])
-
-    # # Create a container client
-    # container_client = blob_service_client.get_container_client(container)
-
-    # prefix = os.path.splitext(source_file)[0]
-
-    # blob_list = container_client.list_blobs(name_starts_with=prefix)
-
-    # chunks_dict = {}
-    # for blob in blob_list:
-    #     pattern = re.compile(r'_page_(\d+)\.json')
-    #     match = pattern.search(blob.name)
-    #     if match:
-    #         page = match.group(1)
-    #         chunks_dict[int(page)] = blob.name
-
-    # chunks_content_dict = {}
-    # for key in chunks_dict.keys():
-    #     blob_client = container_client.get_blob_client(chunks_dict[key])
-    #     file_data = (blob_client.download_blob().readall()).decode('utf-8')
-
-    #     # Load the file data as a JSON string
-    #     file_data =  json.loads(file_data)
-    #     chunks_content_dict[key] = file_data
-
     chunks_content_dict = dict(sorted(chunks_content_dict.items()))
 
     pages = chunks_content_dict

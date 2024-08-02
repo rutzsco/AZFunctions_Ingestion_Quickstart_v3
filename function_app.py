@@ -16,9 +16,9 @@ import io
 import base64
 
 from doc_intelligence_utilities import analyze_pdf, extract_results
-from aoai_utilities import generate_embeddings, classify_image, analyze_image
+from aoai_utilities import generate_embeddings, classify_image, analyze_image, get_transcription
 from ai_search_utilities import create_vector_index, get_current_index, insert_documents_vector, delete_documents_vector
-from chunking_utils import create_chunks
+from chunking_utils import create_chunks, split_text
 import tempfile
 import subprocess
 
@@ -151,7 +151,7 @@ def pdf_orchestrator(context):
     
      # Get the list of files in the source container
     try:
-        files = yield context.call_activity_with_retry("get_source_files", retry_options, json.dumps({'source_container': source_container, 'extension': '.pdf', 'prefix': prefix_path}))
+        files = yield context.call_activity_with_retry("get_source_files", retry_options, json.dumps({'source_container': source_container, 'extensions': ['.pdf'], 'prefix': prefix_path}))
         context.set_custom_status('Retrieved Source Files')
     except Exception as e:
         context.set_custom_status('Ingestion Failed During File Retrieval')
@@ -405,6 +405,297 @@ def pdf_orchestrator(context):
 
 
 @app.orchestration_trigger(context_name="context")
+def audio_video_orchestrator(context):
+    """  
+    Orchestrates the processing of audio/video files for ingestion, analysis, and indexing.  
+  
+    This function handles the entire workflow of processing PDF files, including:  
+    ...
+  
+    Parameters:  
+    - context (DurableOrchestrationContext): The context object provided by the Durable Functions runtime.
+
+    API Arguments:
+    - source_container (str): The name of the source container.
+    - extract_container (str): The name of the extract container.
+    - prefix_path (str): The prefix path for the files to be processed.
+    - index_name (str): The name of the index to which the documents will be added.
+    - automatically_delete (bool): A flag indicating whether to automatically delete intermediate data.
+    - overlapping_chunks (bool): A flag indicating whether to allow overlapping chunks. If false, page-wise chunks will be created.
+    - chunk_size (int): The size of the chunks to be created.
+    - overlap (int): The amount of overlap between chunks.  
+  
+    Returns:  
+    - str: A JSON string containing the list of parent files, processed documents, indexed documents, and the index name.  
+  
+    Raises:  
+    - Exception: If any step in the workflow fails, an exception is raised with an appropriate error message.  
+    """
+
+    first_retry_interval_in_milliseconds = 5000
+    max_number_of_attempts = 2
+    retry_options = df.RetryOptions(first_retry_interval_in_milliseconds, max_number_of_attempts)
+
+    ###################### DATA INGESTION START ######################
+    
+    # Get the input payload from the context
+    payload = context.get_input()
+    
+    # Extract the container names from the payload
+    source_container = payload.get("source_container")
+    extract_container = payload.get("extract_container")
+    prefix_path = payload.get("prefix_path")
+    index_name = payload.get("index_name")
+    automatically_delete = payload.get("automatically_delete")
+    overlapping_chunks = payload.get("overlapping_chunks")
+    chunk_size = payload.get("chunk_size")
+    overlap = payload.get("overlap")
+
+    cosmos_record_id = context.instance_id
+
+    # Create a status record in cosmos that can be updated throughout the course of this ingestion job
+    try:
+        payload = yield context.call_activity("create_status_record", json.dumps({'cosmos_id': cosmos_record_id}))
+        context.set_custom_status('Created Cosmos Record Successfully')
+    except Exception as e:
+        context.set_custom_status('Failed to Create Cosmos Record')
+        pass
+
+    # Create a status record that can be used to update CosmosDB
+    try:
+        status_record = {}
+        status_record['source_container'] = source_container
+        status_record['extract_container'] = extract_container
+        status_record['prefix_path'] = prefix_path
+        status_record['index_name'] = index_name
+        status_record['automatically_delete'] = automatically_delete
+        status_record['overlapping_chunks'] = overlapping_chunks
+        status_record['chunk_size'] = chunk_size
+        status_record['overlap'] = overlap
+        status_record['id'] = cosmos_record_id
+        status_record['status'] = 1
+        status_record['status_message'] = 'Starting Ingestion Process'
+        status_record['processing_progress'] = 0.1
+        yield context.call_activity("update_status_record", json.dumps(status_record))
+    except Exception as e:
+        pass
+
+    # Define intermediate containers that will hold transient data
+    transcripts_container = f'{source_container}-transcripts'
+    
+    # Confirm that all storage locations exist to support document ingestion
+    try:
+        container_check = yield context.call_activity_with_retry("check_audio_video_containers", retry_options, json.dumps({'source_container': source_container}))
+        context.set_custom_status('Audio/Video Processing Containers Checked')
+        
+    except Exception as e:
+        context.set_custom_status('Ingestion Failed During Container Check')
+        status_record['status'] = -1
+        status_record['status_message'] = 'Ingestion Failed During Container Check'
+        status_record['error_message'] = str(e)
+        status_record['processing_progress'] = 0.0
+        yield context.call_activity("update_status_record", json.dumps(status_record))
+        logging.error(e)
+        raise e
+
+    # Initialize lists to store parent and extracted files
+    parent_files = []
+    extracted_files = []
+    
+     # Get the list of files in the source container
+    try:
+        files = yield context.call_activity_with_retry("get_source_files", retry_options, json.dumps({'source_container': source_container, 'extensions': ['.mp3', '.mp4', '.mpweg', '.mpga', '.m4a', '.wav', '.webm'], 'prefix': prefix_path}))
+        context.set_custom_status('Retrieved Source Files')
+    except Exception as e:
+        context.set_custom_status('Ingestion Failed During File Retrieval')
+        status_record['status'] = -1
+        status_record['status_message'] = 'Ingestion Failed During File Retrieval'
+        status_record['error_message'] = str(e)
+        status_record['processing_progress'] = 0.0
+        yield context.call_activity("update_status_record", json.dumps(status_record))
+        logging.error(e)
+        raise e
+    
+    context.set_custom_status('Retrieved Source Files')
+    status_record['status_message'] = 'Retrieved Source Files'
+    status_record['processing_progress'] = 0.1
+    status_record['status'] = 1
+    yield context.call_activity("update_status_record", json.dumps(status_record))
+
+
+
+    ###### UPDATE LOGIC HERE - TRANSCRIBE FILES
+    try:
+        transcribe_file_tasks = []
+        for file in files:
+            # Append the file to the parent_files list
+            parent_files.append(file)
+            # Create a task to transcribe the audio/video file and append it to the transcribe_file_tasks list
+            transcribe_file_tasks.append(context.call_activity_with_retry("transcribe_audio_video_files", retry_options, json.dumps({'source_container': source_container, 'transcripts_container': transcripts_container, 'file': file})))
+        transcribed_audio_files = yield context.task_all(transcribe_file_tasks)
+
+    except Exception as e:
+        context.set_custom_status('Ingestion Failed During Transcription')
+        status_record['status'] = -1
+        status_record['status_message'] = 'Ingestion Failed During Transcription'
+        status_record['error_message'] = str(e)
+        status_record['processing_progress'] = 0.0
+        yield context.call_activity("update_status_record", json.dumps(status_record))
+        logging.error(e)
+        raise e
+
+    context.set_custom_status('Audio Transcription Completed')
+    status_record['status_message'] = 'Audio Transcription Completed'
+    status_record['processing_progress'] = 0.6
+    status_record['status'] = 1
+    yield context.call_activity("update_status_record", json.dumps(status_record))
+
+    #### THEN CHUNK TRANSCRIPTS
+    try:
+        chunking_tasks = []
+        for file in transcribed_audio_files:
+            chunking_tasks.append(context.call_activity("chunk_transcripts", json.dumps({'parent': file, 'transcripts_container': transcripts_container, 'extract_container': extract_container, 'overlapping_chunks': overlapping_chunks, 'chunk_size': chunk_size, 'overlap': overlap})))
+        chunked_transcript_files = yield context.task_all(chunking_tasks)
+    except Exception as e:
+        context.set_custom_status('Ingestion Failed During Chunking')
+        status_record['status'] = -1
+        status_record['status_message'] = 'Ingestion Failed During Chunking'
+        status_record['error_message'] = str(e)
+        status_record['processing_progress'] = 0.0
+        yield context.call_activity("update_status_record", json.dumps(status_record))
+        logging.error(e)
+        raise e
+    
+    context.set_custom_status('Extract Chunking Completed')
+    status_record['status_message'] = 'Extract Chunking Completed'
+    status_record['processing_progress'] = 0.7
+    status_record['status'] = 1
+    yield context.call_activity("update_status_record", json.dumps(status_record))
+
+    #### THEN GENERATE EMBEDDINGS
+
+    # For each transcribed audio/video file, generate embeddings and save the results
+    try:
+        generate_embeddings_tasks = []
+        for file in chunked_transcript_files:
+            # Create a task to generate embeddings for the extracted file and append it to the generate_embeddings_tasks list
+            generate_embeddings_tasks.append(context.call_activity("generate_extract_embeddings", json.dumps({'extract_container': extract_container, 'file': file})))
+        # Execute all the generate embeddings tasks and get the results
+        processed_documents = yield context.task_all(generate_embeddings_tasks)
+        
+    except Exception as e:
+        context.set_custom_status('Ingestion Failed During Vectorization')
+        status_record['status'] = -1
+        status_record['status_message'] = 'Ingestion Failed During Vectorization'
+        status_record['error_message'] = str(e)
+        status_record['processing_progress'] = 0.0
+        yield context.call_activity("update_status_record", json.dumps(status_record))
+        logging.error(e)
+        raise e
+
+    context.set_custom_status('Vectorization Completed')
+    status_record['status_message'] = 'Vectorization Completed'
+    status_record['processing_progress'] = 0.8
+    status_record['status'] = 1
+    yield context.call_activity("update_status_record", json.dumps(status_record))
+
+    ###################### DATA INGESTION END ######################
+
+
+    ###################### DATA INDEXING START ######################
+
+    try:
+        prefix_path = prefix_path.split('.')[0]
+
+        # Use list of files in the extracts container
+        files = processed_documents
+
+        # Use the user's provided index name rather than the latest index
+        latest_index = index_name
+        
+        # Get the current index and its fields
+        index_detail, fields = get_current_index(index_name)
+
+        context.set_custom_status('Index Retrieval Complete')
+        status_record['status_message'] = 'Index Retrieval Complete'
+
+    except Exception as e:
+        context.set_custom_status('Ingestion Failed During Index Retrieval')
+        status_record['status'] = 0
+        status_record['status_message'] = 'Ingestion Failed During Index Retrieval'
+        status_record['error_message'] = str(e)
+        status_record['processing_progress'] = 0.0
+        yield context.call_activity("update_status_record", json.dumps(status_record))
+        logging.error(e)
+        raise e
+
+    # Initialize list to store tasks for inserting records
+    try:
+        insert_tasks = []
+        for file in files:
+            # Create a task to insert a record for the file and append it to the insert_tasks list
+            insert_tasks.append(context.call_activity_with_retry("insert_record", retry_options, json.dumps({'file': file, 'index': latest_index, 'fields': fields, 'extracts-container': extract_container})))
+        # Execute all the insert record tasks and get the results
+        insert_results = yield context.task_all(insert_tasks)
+    except Exception as e:
+        context.set_custom_status('Ingestion Failed During Indexing')
+        status_record['status'] = 0
+        status_record['status_message'] = 'Ingestion Failed During Indexing'
+        status_record['error_message'] = str(e)
+        status_record['processing_progress'] = 0.0
+        yield context.call_activity("update_status_record", json.dumps(status_record))
+        logging.error(e)
+        raise e
+    
+    context.set_custom_status('Indexing Completed')
+    status_record['status_message'] = 'Ingestion Completed'
+    status_record['processing_progress'] = 1
+    status_record['status'] = 10
+    yield context.call_activity("update_status_record", json.dumps(status_record))
+
+    # Update 
+    yield context.call_activity("update_profile_record", json.dumps({'index_name': latest_index, 'contains_data': True}))
+
+    ###################### DATA INDEXING END ######################
+
+    ###################### INTERMEDIATE DATA DELETION START ######################
+
+    if automatically_delete:
+
+        try:
+            source_files = yield context.call_activity_with_retry("delete_source_files", retry_options, json.dumps({'source_container': source_container,  'prefix': prefix_path}))
+            chunk_files = yield context.call_activity_with_retry("delete_source_files", retry_options, json.dumps({'source_container': pages_container,  'prefix': prefix_path}))
+            doc_intel_result_files = yield context.call_activity_with_retry("delete_source_files", retry_options, json.dumps({'source_container': doc_intel_results_container,  'prefix': prefix_path}))
+            extract_files = yield context.call_activity_with_retry("delete_source_files", retry_options, json.dumps({'source_container': extract_container,  'prefix': prefix_path}))
+
+            context.set_custom_status('Ingestion & Clean Up Completed')
+            status_record['cleanup_status_message'] = 'Intermediate Data Clean Up Completed'
+            status_record['cleanup_status'] = 10
+            yield context.call_activity("update_status_record", json.dumps(status_record))
+        
+        except Exception as e:
+            context.set_custom_status('Data Clean Up Failed')
+            status_record['cleanup_status'] = -1
+            status_record['cleanup_status_message'] = 'Intermediate Data Clean Up Failed'
+            status_record['cleanup_error_message'] = str(e)
+            yield context.call_activity("update_status_record", json.dumps(status_record))
+            logging.error(e)
+            raise e
+
+    ###################### INTERMEDIATE DATA DELETION END ######################
+
+    # Update Cosmos record with final status
+    status_record['parent_files'] = parent_files
+    status_record['processed_documents'] = processed_documents
+    status_record['indexed_documents'] = insert_results
+    status_record['index_name'] = latest_index
+    yield context.call_activity("update_status_record", json.dumps(status_record))
+
+    # Return the list of parent files and processed documents as a JSON string
+    return json.dumps({'parent_files': parent_files, 'processed_documents': processed_documents, 'indexed_documents': insert_results, 'index_name': latest_index})
+
+
+@app.orchestration_trigger(context_name="context")
 def delete_documents_orchestrator(context):
     
     # Get the input payload from the context
@@ -426,12 +717,12 @@ def delete_documents_orchestrator(context):
 
     prefix_path = prefix_path.split('.')[0]
 
-    source_files = yield context.call_activity("get_source_files", json.dumps({'source_container': source_container,  'prefix': prefix_path, 'extension': '.pdf'}))
-    page_files = yield context.call_activity("get_source_files", json.dumps({'source_container': pages_container,  'prefix': prefix_path, 'extension': '.pdf'}))
-    doc_intel_result_files = yield context.call_activity("get_source_files", json.dumps({'source_container': doc_intel_results_container,  'prefix': prefix_path, 'extension': '.json'}))
-    extract_files = yield context.call_activity("get_source_files", json.dumps({'source_container': extract_container,  'prefix': prefix_path, 'extension': '.json'}))
-    doc_intel_formatted_results_files = yield context.call_activity("get_source_files", json.dumps({'source_container': doc_intel_formatted_results_container,  'prefix': prefix_path, 'extension': '.json'}))
-    image_analysis_files = yield context.call_activity("get_source_files", json.dumps({'source_container': image_analysis_results_container,  'prefix': prefix_path, 'extension': '.json'}))
+    source_files = yield context.call_activity("get_source_files", json.dumps({'source_container': source_container,  'prefix': prefix_path, 'extensions': ['.pdf']}))
+    page_files = yield context.call_activity("get_source_files", json.dumps({'source_container': pages_container,  'prefix': prefix_path, 'extensions': ['.pdf']}))
+    doc_intel_result_files = yield context.call_activity("get_source_files", json.dumps({'source_container': doc_intel_results_container,  'prefix': prefix_path, 'extensions': ['.json']}))
+    extract_files = yield context.call_activity("get_source_files", json.dumps({'source_container': extract_container,  'prefix': prefix_path, 'extensions': ['.json']}))
+    doc_intel_formatted_results_files = yield context.call_activity("get_source_files", json.dumps({'source_container': doc_intel_formatted_results_container,  'prefix': prefix_path, 'extensions': ['.json']}))
+    image_analysis_files = yield context.call_activity("get_source_files", json.dumps({'source_container': image_analysis_results_container,  'prefix': prefix_path, 'extensions': ['.json']}))
 
     deleted_ai_search_documents = yield context.call_activity("delete_records", json.dumps({'file': extract_files, 'index': index_name, 'extracts-container': extract_container}))
 
@@ -482,7 +773,6 @@ def delete_documents_orchestrator(context):
                        'deleted_page_files': deleted_page_files, 
                        'deleted_source_files': deleted_source_files})
 
-
 # Activities
 @app.activity_trigger(input_name="activitypayload")
 def get_source_files(activitypayload: str):
@@ -492,7 +782,7 @@ def get_source_files(activitypayload: str):
     
     # Extract the source container, file extension, and prefix from the payload
     source_container = data.get("source_container")
-    extension = data.get("extension")
+    extensions = data.get("extensions")
     prefix = data.get("prefix")
     
     # Create a BlobServiceClient object which will be used to create a container client
@@ -510,7 +800,7 @@ def get_source_files(activitypayload: str):
     # For each blob in the container
     for blob in blobs:
         # If the blob's name ends with the specified extension
-        if blob.name.lower().endswith(extension):
+        if blob.name.lower() in extensions:
             # Append the blob's name to the files list
             files.append(blob.name)
 
@@ -584,6 +874,28 @@ def check_containers(activitypayload: str):
 
     try:
         blob_service_client.create_container(doc_intel_formatted_results_container)
+    except Exception as e:
+        pass
+
+    # Return the list of file names
+    return True
+
+@app.activity_trigger(input_name="activitypayload")
+def check_audio_video_containers(activitypayload: str):
+
+    # Load the activity payload as a JSON string
+    data = json.loads(activitypayload)
+    
+    # Extract the source container, file extension, and prefix from the payload
+    source_container = data.get("source_container")
+    
+    transcripts_container = f'{source_container}-transcripts'
+    
+    # Create a BlobServiceClient object which will be used to create a container client
+    blob_service_client = BlobServiceClient.from_connection_string(os.environ['STORAGE_CONN_STR'])
+
+    try:
+        blob_service_client.create_container(transcripts_container)
     except Exception as e:
         pass
 
@@ -873,6 +1185,81 @@ def analyze_pages_for_embedded_visuals(activitypayload: str):
     return file_name
 
 @app.activity_trigger(input_name="activitypayload")
+def transcribe_audio_files(activitypayload: str):
+
+    # Load the activity payload as a JSON string
+    data = json.loads(activitypayload)
+
+    # Extract the source container, extract container, transcription results container, and file name from the payload
+    source_container_name = data.get("source_container")
+    transcripts_container_name = data.get("transcripts_container")
+    file = data.get("file")
+
+    # Create new file names for the transcript and extract files
+    transcript_file_name = file.split('.')[0] + '.txt'
+    extract_file_name = file.split('.')[0] + '.json'
+
+    # Generate a unique ID for the record
+    id_str = file
+    hash_object = hashlib.sha256()  
+    hash_object.update(id_str.encode('utf-8'))  
+    id = hash_object.hexdigest()  
+
+    # Create a BlobServiceClient object which will be used to create a container client
+    blob_service_client = BlobServiceClient.from_connection_string(os.environ['STORAGE_CONN_STR'])
+
+    # Get a ContainerClient object for the source, extract, and transcription results containers
+    source_container = blob_service_client.get_container_client(source_container_name)
+    transcript_container = blob_service_client.get_container_client(transcripts_container_name)
+
+    # Get a BlobClient object for the transcript file
+    transcript_blob_client = transcript_container.get_blob_client(blob=transcript_file_name)
+
+    # If the transcript file does not exist
+    if not transcript_blob_client.exists():
+
+        # Get a BlobClient object for the audio file
+        audio_blob_client = source_container.get_blob_client(blob=file)
+
+        # Download the audio file
+        audio_data = audio_blob_client.download_blob().readall()
+
+        # Get the extension of the audio file
+        _, extension = os.path.splitext(audio_blob_client.blob_name)
+
+        # Download the audio file to a temporary file
+        with tempfile.NamedTemporaryFile(delete=False, suffix=extension) as temp_file:
+            temp_file.write(audio_data)
+
+        print(f'Saved {audio_blob_client.blob_name} to {temp_file.name}\n')
+
+        # Get the path of the temporary file
+        local_audio_file = temp_file.name
+
+        try:
+            # Transcribe the audio file
+            transcript = get_transcription(local_audio_file)
+        except Exception as e:
+            pass
+        finally:
+            # Delete the temporary file
+            os.remove(local_audio_file)
+
+        # Create a record for the transcript
+        record = {
+            'sourcefile': file,
+            'content': transcript,
+            'category': 'audio-video'
+        }
+
+        # Upload the transcript to the transcription results container
+        transcript_blob_client.upload_blob(json.dumps(record), overwrite=True)
+
+    # Return the name of the extract file
+    return extract_file_name
+
+
+@app.activity_trigger(input_name="activitypayload")
 def chunk_extracts(activitypayload: str):
     """
     UPDATE!!!!
@@ -989,6 +1376,110 @@ def chunk_extracts(activitypayload: str):
     return out_files
 
 
+@app.activity_trigger(input_name="activitypayload")
+def chunk_audio_video_extracts(activitypayload: str):
+    """
+    UPDATE!!!!
+    Analyze a single page in a PDF to determine if there are charts, graphs, etc.
+
+    Args:
+        activitypayload (str): The payload containing information about the PDF file.
+
+    Returns:
+        str: The updated filename of the processed PDF file.
+    """
+
+    # Load the activity payload as a JSON string
+    data = json.loads(activitypayload)
+
+    # Extract the child file name, parent file name, and container names from the payload
+    parent = data.get("parent")
+    extract_container = data.get("extract_container")
+    transcript_container = data.get("transcript_container")
+    overlapping_chunks = data.get("overlapping_chunks")
+    chunk_size = data.get("chunk_size")
+    overlap = data.get("overlap")
+
+    prefix = parent.split('.')[0]
+
+
+    # Create a BlobServiceClient object which will be used to create a container client
+    blob_service_client = BlobServiceClient.from_connection_string(os.environ['STORAGE_CONN_STR'])
+
+    # Get container clients
+    extract_container_client = blob_service_client.get_container_client(container=extract_container)
+    transcript_container_client = blob_service_client.get_container_client(container=transcript_container)
+    
+    transcript_files = []
+
+    for blob in transcript_container_client.list_blobs(name_starts_with=prefix):
+        transcript_files.append(blob.name)
+
+    out_files = []
+
+    if overlapping_chunks==False:
+        for file in transcript_files:
+            # Get a BlobClient object for the transcript file
+            transcript_blob_client = transcript_container_client.get_blob_client(blob=file)
+            
+            # Load the transcript file as a JSON string
+            transcript_data = json.loads((transcript_blob_client.download_blob().readall()).decode('utf-8'))
+
+            chunks = split_text(transcript_data['content'], 800, 0)
+
+            chunks = [x[2] for x in chunks]
+
+            for idx, chunk in enumerate(chunks):
+
+                id_str = chunk + transcript_data['sourcepage'] + str(idx)
+                hash_object = hashlib.sha256()
+                hash_object.update(id_str.encode('utf-8'))
+                id = hash_object.hexdigest()
+
+                extract_data = {}
+                extract_data['id'] = id
+                extract_data['content'] = chunk
+                extract_data['sourcefile'] = transcript_data['sourcefile']
+                extract_data['chunkcount'] = idx
+
+                filename = file.split('.')[0] + f'_chunk_{idx}.json'
+
+                # Get a BlobClient object for the extracts file
+                final_extract_blob_client = extract_container_client.get_blob_client(blob=filename)
+                final_extract_blob_client.upload_blob(json.dumps(extract_data), overwrite=True)
+                out_files.append(file)
+    else:
+        for file in transcript_files:
+            transcript_blob_client = transcript_container_client.get_blob_client(blob=file)
+            
+            # Load the transcript file as a JSON string
+            transcript_data = json.loads((transcript_blob_client.download_blob().readall()).decode('utf-8'))
+
+            chunks = split_text(transcript_data['content'], chunk_size, overlap)
+
+            chunks = [x[2] for x in chunks]
+
+            for idx, chunk in enumerate(chunks):
+
+                id_str = chunk + transcript_data['sourcepage'] + str(idx)
+                hash_object = hashlib.sha256()
+                hash_object.update(id_str.encode('utf-8'))
+                id = hash_object.hexdigest()
+
+                extract_data = {}
+                extract_data['id'] = id
+                extract_data['content'] = chunk
+                extract_data['sourcefile'] = transcript_data['sourcefile']
+                extract_data['chunkcount'] = idx
+
+                filename = file.split('.')[0] + f'_chunk_{idx}.json'
+
+                # Get a BlobClient object for the extracts file
+                final_extract_blob_client = extract_container_client.get_blob_client(blob=filename)
+                final_extract_blob_client.upload_blob(json.dumps(extract_data), overwrite=True)
+                out_files.append(file)
+
+    return out_files
 
 @app.activity_trigger(input_name="activitypayload")
 def generate_extract_embeddings(activitypayload: str):
@@ -1253,9 +1744,6 @@ def update_profile_record(activitypayload: str):
 
     return response
 
-
-
-
 def pdf_bytes_to_png_bytes(pdf_bytes, page_number=1):
     # Load the PDF from a bytes object
     pdf_stream = io.BytesIO(pdf_bytes)
@@ -1287,10 +1775,7 @@ def pdf_bytes_to_png_bytes(pdf_bytes, page_number=1):
     return png_bytes_io
 
 
-
-
-
-@app.route(route="convert_file_to_pdf", auth_level=func.AuthLevel.ANONYMOUS)
+@app.route(route="convert_file_to_pdf", auth_level=func.AuthLevel.FUNCTION)
 def convert_file_to_pdf(req: func.HttpRequest) -> func.HttpResponse:
     # Get the JSON payload from the request
     data = req.get_json()
@@ -1312,7 +1797,12 @@ def convert_file_to_pdf(req: func.HttpRequest) -> func.HttpResponse:
     # Retrieve the file as a stream and load the bytes
     file_bytes = blob_client.download_blob().readall()
 
-    pdf_bytes = convert_to_pdf_helper(file_bytes)
+    try:
+
+        pdf_bytes = convert_to_pdf_helper(file_bytes)
+
+    except Exception as e:
+        raise Exception(f"An error occurred: {e}")
 
     # Get a BlobClient object for the converted PDF file
     pdf_blob_client = container_client.get_blob_client(blob=updated_filename)
