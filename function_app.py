@@ -93,6 +93,8 @@ def pdf_orchestrator(context):
     overlapping_chunks = payload.get("overlapping_chunks")
     chunk_size = payload.get("chunk_size")
     overlap = payload.get("overlap")
+    entra_id = payload.get("entra_id")
+    session_id = payload.get("session_id")
 
     cosmos_record_id = context.instance_id
 
@@ -117,6 +119,8 @@ def pdf_orchestrator(context):
         status_record['chunk_size'] = chunk_size
         status_record['overlap'] = overlap
         status_record['id'] = cosmos_record_id
+        status_record['entra_id'] = entra_id
+        status_record['session_id'] = session_id
         status_record['status'] = 1
         status_record['status_message'] = 'Starting Ingestion Process'
         status_record['processing_progress'] = 0.1
@@ -457,6 +461,8 @@ def audio_video_orchestrator(context):
     overlapping_chunks = payload.get("overlapping_chunks")
     chunk_size = payload.get("chunk_size")
     overlap = payload.get("overlap")
+    entra_id = payload.get("entra_id")
+    session_id = payload.get("session_id")
 
     cosmos_record_id = context.instance_id
 
@@ -479,6 +485,8 @@ def audio_video_orchestrator(context):
         status_record['overlapping_chunks'] = overlapping_chunks
         status_record['chunk_size'] = chunk_size
         status_record['overlap'] = overlap
+        status_record['entra_id'] = entra_id
+        status_record['session_id'] = session_id
         status_record['id'] = cosmos_record_id
         status_record['status'] = 1
         status_record['status_message'] = 'Starting Ingestion Process'
