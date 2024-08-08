@@ -95,8 +95,11 @@ def pdf_orchestrator(context):
     overlap = payload.get("overlap")
     entra_id = payload.get("entra_id")
     session_id = payload.get("session_id")
-
-    cosmos_record_id = context.instance_id
+    cosmos_record_id = payload.get("id")
+    if cosmos_record_id is None:
+        cosmos_record_id = context.instance_id
+    if len(cosmos_record_id)==0:
+        cosmos_record_id = context.instance_id
 
     # Create a status record in cosmos that can be updated throughout the course of this ingestion job
     try:
@@ -463,8 +466,11 @@ def audio_video_orchestrator(context):
     overlap = payload.get("overlap")
     entra_id = payload.get("entra_id")
     session_id = payload.get("session_id")
-
-    cosmos_record_id = context.instance_id
+    cosmos_record_id = payload.get("id")
+    if cosmos_record_id is None:
+        cosmos_record_id = context.instance_id
+    if len(cosmos_record_id)==0:
+        cosmos_record_id = context.instance_id
 
     # Create a status record in cosmos that can be updated throughout the course of this ingestion job
     try:
