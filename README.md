@@ -1,6 +1,6 @@
 # Generative AI Ingestion Functions - Quickstart
 
-### Contains new functionality for image analysis and variable document chunking with optional overlap, multi-modal ingestion, and support for audio, video, and non-PDF file formats
+### Contains new functionality for image analysis and variable document chunking with optional overlap, multi-modal ingestion (support for audio, video, and non-PDF file formats)
 
 ## Project Overview
 
