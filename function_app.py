@@ -95,7 +95,7 @@ def pdf_orchestrator(context):
     overlap = payload.get("overlap")
     entra_id = payload.get("entra_id")
     session_id = payload.get("session_id")
-    cosmos_record_id = payload.get("id")
+    cosmos_record_id = payload.get("cosmos_record_id")
     if cosmos_record_id is None:
         cosmos_record_id = context.instance_id
     if len(cosmos_record_id)==0:
@@ -466,7 +466,7 @@ def audio_video_orchestrator(context):
     overlap = payload.get("overlap")
     entra_id = payload.get("entra_id")
     session_id = payload.get("session_id")
-    cosmos_record_id = payload.get("id")
+    cosmos_record_id = payload.get("cosmos_record_id")
     if cosmos_record_id is None:
         cosmos_record_id = context.instance_id
     if len(cosmos_record_id)==0:
@@ -719,6 +719,95 @@ def audio_video_orchestrator(context):
 
     # Return the list of parent files and processed documents as a JSON string
     return json.dumps({'parent_files': parent_files, 'processed_documents': processed_documents, 'indexed_documents': insert_results, 'index_name': latest_index})
+
+
+@app.orchestration_trigger(context_name="context")
+def non_pdf_orchestrator(context):
+
+    first_retry_interval_in_milliseconds = 5000
+    max_number_of_attempts = 2
+    retry_options = df.RetryOptions(first_retry_interval_in_milliseconds, max_number_of_attempts)
+
+    ###################### DATA INGESTION START ######################
+    
+    # Get the input payload from the context
+    payload = context.get_input()
+    
+    # Extract the container names from the payload
+    source_container = payload.get("source_container")
+    extract_container = payload.get("extract_container")
+    prefix_path = payload.get("prefix_path")
+    index_name = payload.get("index_name")
+    automatically_delete = payload.get("automatically_delete")
+    analyze_images = payload.get("analyze_images")
+    overlapping_chunks = payload.get("overlapping_chunks")
+    chunk_size = payload.get("chunk_size")
+    overlap = payload.get("overlap")
+    entra_id = payload.get("entra_id")
+    session_id = payload.get("session_id")
+    cosmos_record_id = payload.get("cosmos_record_id")
+    if cosmos_record_id is None:
+        cosmos_record_id = context.instance_id
+    if len(cosmos_record_id)==0:
+        cosmos_record_id = context.instance_id
+
+    # Create a status record in cosmos that can be updated throughout the course of this ingestion job
+    try:
+        payload = yield context.call_activity("create_status_record", json.dumps({'cosmos_id': cosmos_record_id}))
+        context.set_custom_status('Created Cosmos Record Successfully')
+    except Exception as e:
+        context.set_custom_status('Failed to Create Cosmos Record')
+        pass
+
+    # Create a status record that can be used to update CosmosDB
+    try:
+        status_record = {}
+        status_record['source_container'] = source_container
+        status_record['extract_container'] = extract_container
+        status_record['prefix_path'] = prefix_path
+        status_record['index_name'] = index_name
+        status_record['automatically_delete'] = automatically_delete
+        status_record['analyze_images'] = analyze_images
+        status_record['overlapping_chunks'] = overlapping_chunks
+        status_record['chunk_size'] = chunk_size
+        status_record['overlap'] = overlap
+        status_record['id'] = cosmos_record_id
+        status_record['entra_id'] = entra_id
+        status_record['session_id'] = session_id
+        status_record['status'] = 1
+        status_record['status_message'] = 'Starting Ingestion Process'
+        status_record['processing_progress'] = 0.1
+        yield context.call_activity("update_status_record", json.dumps(status_record))
+    except Exception as e:
+        pass
+
+    # Convert document to pdf
+    try:
+        pdf_file = yield context.call_activity_with_retry("convert_to_pdf", retry_options, json.dumps({'source_container': source_container, 'prefix': prefix_path}))
+        context.set_custom_status('Converted Document to PDF')
+        payload['prefix_path'] = pdf_file['updated_filename']
+    except Exception as e:
+        context.set_custom_status('Ingestion Failed During PDF Conversion')
+        status_record['status'] = -1
+        status_record['status_message'] = 'Ingestion Failed During PDF Conversion'
+        status_record['error_message'] = str(e)
+        status_record['processing_progress'] = 0.0
+        yield context.call_activity("update_status_record", json.dumps(status_record))
+        logging.error(e)
+        raise e
+    
+    context.set_custom_status('Converted Document to PDF')
+    status_record['status_message'] = 'Converted Document to PDF'
+    status_record['processing_progress'] = 0.1
+    status_record['status'] = 1
+    yield context.call_activity("update_status_record", json.dumps(status_record))
+
+    # Call the PDF orchestrator to process the PDF file
+    try:
+        pdf_orchestrator_response = yield context.call_sub_orchestrator("pdf_orchestrator", json.dumps(payload))
+        return pdf_orchestrator_response
+    except Exception as e:
+        raise e
 
 
 @app.orchestration_trigger(context_name="context")
@@ -1621,6 +1710,45 @@ def delete_records(activitypayload: str):
 
     # Return the file name
     return deleted_records
+
+@app.activity_trigger(input_name="activitypayload")
+def convert_pdf_activity(activitypayload: str):
+    # Load the activity payload as a JSON string
+    data = json.loads(activitypayload)
+
+    # Extract the index stem name from the payload
+    container = data.get("container")
+    filename = data.get("filename")
+
+    updated_filename = filename.split('.')[0] + '.pdf'
+
+    # Create a BlobServiceClient object which will be used to create a container client
+    blob_service_client = BlobServiceClient.from_connection_string(os.environ['STORAGE_CONN_STR'])
+
+    # Get a ContainerClient object for the extracts container
+    container_client = blob_service_client.get_container_client(container=container)
+
+    # Get a BlobClient object for the file
+    blob_client = container_client.get_blob_client(blob=filename)
+
+    # Retrieve the file as a stream and load the bytes
+    file_bytes = blob_client.download_blob().readall()
+
+    try:
+
+        pdf_bytes = convert_to_pdf_helper(file_bytes)
+
+    except Exception as e:
+        raise Exception(f"An error occurred: {e}")
+
+    # Get a BlobClient object for the converted PDF file
+    pdf_blob_client = container_client.get_blob_client(blob=updated_filename)
+
+    # Upload the PDF file
+    pdf_blob_client.upload_blob(pdf_bytes, overwrite=True)
+
+    return json.dumps({'container': container, 'filename': updated_filename})
+
 
 # Standalone Functions
 
