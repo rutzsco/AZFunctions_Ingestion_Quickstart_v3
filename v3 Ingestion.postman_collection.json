@@ -1,0 +1,195 @@
+{
+	"info": {
+		"_postman_id": "81931a4a-ace3-4e82-8d65-b47cd9fa6979",
+		"name": "v3 Ingestion",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "7106514",
+		"_collection_link": "https://red-capsule-151654.postman.co/workspace/My-Workspace~a6975d53-938e-4348-8d6d-b875fbfd8706/collection/7106514-81931a4a-ace3-4e82-8d65-b47cd9fa6979?action=share&source=collection_link&creator=7106514"
+	},
+	"item": [
+		{
+			"name": "Trigger PDF Ingestion",
+			"protocolProfileBehavior": {
+				"disableBodyPruning": true
+			},
+			"request": {
+				"method": "GET",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\r\n    \"source_container\": \"pdf-content\",\r\n    \"extract_container\": \"pdf-extract\",\r\n    \"prefix_path\": \"\",\r\n    \"index_name\": \"\",\r\n    \"automatically_delete\": false,\r\n    \"analyze_images\": true,\r\n    \"overlapping_chunks\": true,\r\n    \"chunk_size\": 600,\r\n    \"overlap\": 200\r\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{FUNCTION_URI}}/api/orchestrators/pdf_orchestrator?code={{FUNCTION_KEY}}",
+					"host": [
+						"{{FUNCTION_URI}}"
+					],
+					"path": [
+						"api",
+						"orchestrators",
+						"pdf_orchestrator"
+					],
+					"query": [
+						{
+							"key": "code",
+							"value": "{{FUNCTION_KEY}}"
+						}
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Trigger Non-PDF Ingestion",
+			"protocolProfileBehavior": {
+				"disableBodyPruning": true
+			},
+			"request": {
+				"method": "GET",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\r\n    \"source_container\": \"doc-content\",\r\n    \"extract_container\": \"doc-extract\",\r\n    \"prefix_path\": \"\",\r\n    \"index_name\": \"\",\r\n    \"automatically_delete\": false,\r\n    \"analyze_images\": true,\r\n    \"overlapping_chunks\": true,\r\n    \"chunk_size\": 600,\r\n    \"overlap\": 200\r\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{FUNCTION_URI}}/api/orchestrators/pdf_orchestrator?code={{FUNCTION_KEY}}",
+					"host": [
+						"{{FUNCTION_URI}}"
+					],
+					"path": [
+						"api",
+						"orchestrators",
+						"pdf_orchestrator"
+					],
+					"query": [
+						{
+							"key": "code",
+							"value": "{{FUNCTION_KEY}}"
+						}
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Trigger Non-PDF Conversion",
+			"protocolProfileBehavior": {
+				"disableBodyPruning": true
+			},
+			"request": {
+				"method": "GET",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\r\n    \"container\": \"doc-content\",\r\n    \"filename\": \"\"\r\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{LOCAL_FUNCTION_URI}}/api/convert_file_to_pdf?code={{FUNCTION_KEY}}",
+					"host": [
+						"{{LOCAL_FUNCTION_URI}}"
+					],
+					"path": [
+						"api",
+						"convert_file_to_pdf"
+					],
+					"query": [
+						{
+							"key": "code",
+							"value": "{{FUNCTION_KEY}}"
+						}
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Trigger Audio Ingestion",
+			"protocolProfileBehavior": {
+				"disableBodyPruning": true
+			},
+			"request": {
+				"method": "GET",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\r\n    \"source_container\": \"av-content\",\r\n    \"extract_container\": \"av-extract\",\r\n    \"prefix_path\": \"\",\r\n    \"index_name\": \"\",\r\n    \"automatically_delete\": false,\r\n    \"analyze_images\": false,\r\n    \"overlapping_chunks\": true,\r\n    \"chunk_size\": 600,\r\n    \"overlap\": 200\r\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{FUNCTION_URI}}/api/orchestrators/audio_video_orchestrator?code={{FUNCTION_KEY}}",
+					"host": [
+						"{{FUNCTION_URI}}"
+					],
+					"path": [
+						"api",
+						"orchestrators",
+						"audio_video_orchestrator"
+					],
+					"query": [
+						{
+							"key": "code",
+							"value": "{{FUNCTION_KEY}}"
+						}
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Trigger Video Ingestion",
+			"protocolProfileBehavior": {
+				"disableBodyPruning": true
+			},
+			"request": {
+				"method": "GET",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\r\n    \"source_container\": \"av-content\",\r\n    \"extract_container\": \"av-extract\",\r\n    \"prefix_path\": \"gpt_4o_demo_video_mp4.mp4\",\r\n    \"index_name\": \"\",\r\n    \"automatically_delete\": false,\r\n    \"analyze_images\": true,\r\n    \"overlapping_chunks\": true,\r\n    \"chunk_size\": 600,\r\n    \"overlap\": 200\r\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{FUNCTION_URI}}/api/orchestrators/audio_video_orchestrator?code={{FUNCTION_KEY}}",
+					"host": [
+						"{{FUNCTION_URI}}"
+					],
+					"path": [
+						"api",
+						"orchestrators",
+						"audio_video_orchestrator"
+					],
+					"query": [
+						{
+							"key": "code",
+							"value": "{{FUNCTION_KEY}}"
+						}
+					]
+				}
+			},
+			"response": []
+		}
+	]
+}
