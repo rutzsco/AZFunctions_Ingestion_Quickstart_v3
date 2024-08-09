@@ -98,7 +98,8 @@ def get_transcription(filename):
             transcript = result.text
             transcribed = True
         except Exception as e:  # Catch any exceptions and retry after a delay
-            print(e)
+            if 'Maximum content size limit' in str(e):
+                raise e
             logging.error(e)
             time.sleep(10)
             pass

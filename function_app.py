@@ -1765,7 +1765,6 @@ def convert_pdf_activity(activitypayload: str):
 
     return json.dumps({'container': container, 'filename': updated_filename})
 
-
 # Standalone Functions
 
 # This function creates a new index
@@ -1930,7 +1929,6 @@ def pdf_bytes_to_png_bytes(pdf_bytes, page_number=1):
 
     # Return the BytesIO object containing the PNG image
     return png_bytes_io
-
 
 @app.route(route="convert_file_to_pdf", auth_level=func.AuthLevel.FUNCTION)
 def convert_file_to_pdf(req: func.HttpRequest) -> func.HttpResponse:
