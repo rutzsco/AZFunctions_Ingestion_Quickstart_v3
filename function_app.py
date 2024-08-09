@@ -781,11 +781,27 @@ def non_pdf_orchestrator(context):
     except Exception as e:
         pass
 
-    # Convert document to pdf
+    # Get source files
     try:
-        pdf_file = yield context.call_activity_with_retry("convert_to_pdf", retry_options, json.dumps({'source_container': source_container, 'prefix': prefix_path}))
-        context.set_custom_status('Converted Document to PDF')
-        payload['prefix_path'] = pdf_file['updated_filename']
+        files = yield context.call_activity_with_retry("get_source_files", retry_options, json.dumps({'source_container': source_container, 'extensions': ['.doc', '.docx', '.dot', '.dotx', '.odt', '.ott', '.fodt', '.sxw', '.stw', '.uot', '.rtf', '.txt', '.xls', '.xlsx', '.xlsm', '.xlt', '.xltx', '.ods', '.ots', '.fods', '.sxc', '.stc', '.uos', '.csv', '.ppt', '.pptx', '.pps', '.ppsx', '.pot', '.potx', '.odp', '.otp', '.fodp', '.sxi', '.sti', '.uop', '.odg', '.otg', '.fodg', '.sxd', '.std', '.svg', '.html', '.htm', '.xps', '.epub'], 'prefix': prefix_path}))
+        context.set_custom_status('Retrieved Source Files')
+    except Exception as e:
+        context.set_custom_status('Ingestion Failed During File Retrieval')
+        status_record['status'] = -1
+        status_record['status_message'] = 'Ingestion Failed During File Retrieval'
+        status_record['error_message'] = str(e)
+        status_record['processing_progress'] = 0.0
+        yield context.call_activity("update_status_record", json.dumps(status_record))
+        logging.error(e)
+        raise e
+
+    # Convert documents to pdf
+    try:
+        pdf_file_conversion_tasks = []
+        for file in files:
+            pdf_file_conversion_tasks.append(context.call_activity_with_retry("convert_pdf_activity", retry_options, json.dumps({'container': source_container, 'filename': file})))
+        converted_pdf_files = yield context.task_all(pdf_file_conversion_tasks)
+        context.set_custom_status('Converted Documents to PDF')
     except Exception as e:
         context.set_custom_status('Ingestion Failed During PDF Conversion')
         status_record['status'] = -1
@@ -804,7 +820,7 @@ def non_pdf_orchestrator(context):
 
     # Call the PDF orchestrator to process the PDF file
     try:
-        pdf_orchestrator_response = yield context.call_sub_orchestrator("pdf_orchestrator", json.dumps(payload))
+        pdf_orchestrator_response = yield context.call_sub_orchestrator("pdf_orchestrator", context.get_input())
         return pdf_orchestrator_response
     except Exception as e:
         raise e
@@ -1974,10 +1990,11 @@ def convert_to_pdf_helper(input_bytes):
         command = [
             'libreoffice', '--headless', '--convert-to', 'pdf', '--outdir', tmpdirname, input_path
         ]
-       
+        out = None
         try:
             subprocess.run(command, check=True)
         except Exception as e:
+            out = e
             print(f"An error occurred: {e}")
 
         print(os.listdir(tmpdirname))
