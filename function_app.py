@@ -822,7 +822,7 @@ def non_pdf_orchestrator(context):
     try:
         updated_payload = context.get_input()
         updated_payload['prefix_path'] = prefix_path.split('.')[0] # account for conversion to pdf if full path provided
-        pdf_orchestrator_response = yield context.call_sub_orchestrator("pdf_orchestrator", context.get_input())
+        pdf_orchestrator_response = yield context.call_sub_orchestrator("pdf_orchestrator", updated_payload)
         return pdf_orchestrator_response
     except Exception as e:
         raise e
