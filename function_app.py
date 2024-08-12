@@ -1778,13 +1778,14 @@ def create_new_index(req: func.HttpRequest) -> func.HttpResponse:
     stem_name = data.get("index_stem_name")
     fields = data.get("fields")
     description = data.get("description")
+    omit_timestamp = data.get("omit_timestamp")
 
     # fields = {
     #     "content": "string", "pagenumber": "int", "sourcefile": "string", "sourcepage": "string", "category": "string"
     # }
 
     # Call the function to create a vector index with the specified stem name and fields
-    response = create_vector_index(stem_name, fields)
+    response = create_vector_index(stem_name, fields, omit_timestamp)
 
     # Return the response
     return response

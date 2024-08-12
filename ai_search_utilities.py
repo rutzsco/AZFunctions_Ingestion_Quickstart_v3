@@ -186,7 +186,7 @@ def delete_documents_vector(documents, index_name):
     return deleted_records
 
 
-def create_vector_index(stem_name, user_fields):
+def create_vector_index(stem_name, user_fields, omit_timestamp=False):
     # Get the search key, endpoint, and service name from environment variables
     search_key = os.environ['SEARCH_KEY']
     search_endpoint = os.environ['SEARCH_ENDPOINT']
@@ -198,6 +198,9 @@ def create_vector_index(stem_name, user_fields):
 
     # Create the index name by appending the timestamp to the stem name
     index_name  = f'{stem_name}-{timestamp}'
+
+    if omit_timestamp:
+        index_name = stem_name
 
     # Create a SearchIndexClient object
     credential = AzureKeyCredential(search_key)
