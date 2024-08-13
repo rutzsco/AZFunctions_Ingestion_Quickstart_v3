@@ -59,8 +59,9 @@ jobs:
     runs-on: ubuntu-latest
     env:
       IMAGE_VERSION: ${{ needs.build.outputs.image-version }}
-      CONTAINER_REGISTRY_URL: ${{ needs.build.outputs.image-version }}
-      CONTAINER_REGISTRY_REPOSITORY_NAME: ${{ needs.build.outputs.image-version }}
+      CONTAINER_REGISTRY_URL: ${{ needs.build.outputs.container-registry-url }}
+      CONTAINER_REGISTRY_REPOSITORY_NAME: ${{ needs.build.outputs.container-registry-repository-name }}
+      INGESTION_FUNCTION_STORAGE_ACCOUNT_NAME: ${{ vars.INGESTION_FUNCTION_STORAGE_ACCOUNT_NAME }}
     steps:
       - uses: azure/login@v1
         with:
@@ -71,8 +72,8 @@ jobs:
           echo "IMAGE_VERSION = $IMAGE_VERSION"
           echo "CONTAINER_REGISTRY_URL = $CONTAINER_REGISTRY_URL"
           echo "CONTAINER_REGISTRY_REPOSITORY_NAME = $CONTAINER_REGISTRY_REPOSITORY_NAME"
-          echo "CONTAINER_REGISTRY_REPOSITORY_NAME = $CONTAINER_REGISTRY_REPOSITORY_NAME"
+          echo "INGESTION_FUNCTION_STORAGE_ACCOUNT_NAME = $INGESTION_FUNCTION_STORAGE_ACCOUNT_NAME"
 
       - name: Deploy to server       
         run: |
-         az functionapp create --name ingestionservicev3 --storage-account ${{ vars.INGESTION_FUNCTION_STORAGE_ACCOUNT_NAME }} --environment rutzsco-chat-copilot-demo --resource-group rutzsco-chat-copilot-demo --functions-version 4 --runtime python --image "rutzscolabcr.azurecr.io/custom-chat-copilot/ingestion-functions-v3:$IMAGE_VERSION"
+         az functionapp create --name ingestionservicev3 --storage-account ${{ env.INGESTION_FUNCTION_STORAGE_ACCOUNT_NAME }} --environment rutzsco-chat-copilot-demo --resource-group rutzsco-chat-copilot-demo --functions-version 4 --runtime python --image "rutzscolabcr.azurecr.io/custom-chat-copilot/ingestion-functions-v3:$IMAGE_VERSION"
