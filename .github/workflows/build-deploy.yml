@@ -59,6 +59,8 @@ jobs:
       CONTAINER_REGISTRY_URL: ${{ vars.CONTAINER_REGISTRY_URL}}
       CONTAINER_REGISTRY_REPOSITORY_NAME: ${{ vars.CONTAINER_REGISTRY_REPOSITORY_NAME }}
       INGESTION_FUNCTION_STORAGE_ACCOUNT_NAME: ${{ vars.INGESTION_FUNCTION_STORAGE_ACCOUNT_NAME }}
+      RESOURCE_GROUP_NAME: ${{ vars.RESOURCE_GROUP_NAME }}
+      ACA_ENVIRONMENT_NAME: ${{ vars.ACA_ENVIRONMENT_NAME }}
     steps:
       - uses: azure/login@v1
         with:
@@ -73,4 +75,4 @@ jobs:
 
       - name: Deploy to server       
         run: |
-         az functionapp create --name ingestionservicev3 --storage-account ${{ env.INGESTION_FUNCTION_STORAGE_ACCOUNT_NAME }} --environment rutzsco-chat-copilot-demo --resource-group rutzsco-chat-copilot-demo --functions-version 4 --runtime python --image "rutzscolabcr.azurecr.io/custom-chat-copilot/ingestion-functions-v3:$IMAGE_VERSION"
+         az functionapp create --name ingestionservicev3 --storage-account ${{ env.INGESTION_FUNCTION_STORAGE_ACCOUNT_NAME }} --environment ${{ env.ACA_ENVIRONMENT_NAME }} --resource-group ${{ env.RESOURCE_GROUP_NAME }} --functions-version 4 --runtime python --image "${{ env.CONTAINER_REGISTRY_URL }}/${{ env.CONTAINER_REGISTRY_URL }}:$IMAGE_VERSION"
