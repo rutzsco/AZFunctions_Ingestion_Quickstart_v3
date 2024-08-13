@@ -13,8 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       image-version: ${{ steps.set-variables.outputs.IMAGE_VERSION }}
-      container-registry-url: ${{ steps.set-variables.outputs.CONTAINER_REGISTRY_URL }}
-      container-registry-repository-name: ${{ steps.set-variables.outputs.CONTAINER_REGISTRY_REPOSITORY_NAME }}
+
     steps:
       
       - name: ECHO VARIABLES
@@ -51,16 +50,14 @@ jobs:
         id: set-variables
         run: |
           echo "IMAGE_VERSION=${{ steps.date.outputs.tag }}" >> $GITHUB_OUTPUT
-          echo "CONTAINER_REGISTRY_URL=${{ env.CONTAINER_REGISTRY_URL }}" >> $GITHUB_OUTPUT
-          echo "CONTAINER_REGISTRY_REPOSITORY_NAME=${{ env.CONTAINER_REGISTRY_REPOSITORY_NAME }}" >> $GITHUB_OUTPUT
 
   deploy:
     needs: build
     runs-on: ubuntu-latest
     env:
       IMAGE_VERSION: ${{ needs.build.outputs.image-version }}
-      CONTAINER_REGISTRY_URL: ${{ needs.build.outputs.container-registry-url }}
-      CONTAINER_REGISTRY_REPOSITORY_NAME: ${{ needs.build.outputs.container-registry-repository-name }}
+      CONTAINER_REGISTRY_URL: ${{ vars.CONTAINER_REGISTRY_URL}}
+      CONTAINER_REGISTRY_REPOSITORY_NAME: ${{ vars.CONTAINER_REGISTRY_REPOSITORY_NAME }}
       INGESTION_FUNCTION_STORAGE_ACCOUNT_NAME: ${{ vars.INGESTION_FUNCTION_STORAGE_ACCOUNT_NAME }}
     steps:
       - uses: azure/login@v1
