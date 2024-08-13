@@ -1473,7 +1473,7 @@ def chunk_extracts(activitypayload: str):
                     extract_data['content'] += f'\n\nVisual Components Description:\n{str(visual_description)}'
                     extract_data['content'] = str(extract_data['content'])
 
-            id_str = extract_data['content'] + file
+            id_str = extract_data['content'] + extract_data['sourcepage']
             hash_object = hashlib.sha256()
             hash_object.update(id_str.encode('utf-8'))
             id = hash_object.hexdigest()
@@ -1583,7 +1583,7 @@ def chunk_audio_video_transcripts(activitypayload: str):
 
             for idx, chunk in enumerate(chunks):
 
-                id_str = chunk + transcript_data['sourcepage'] + str(idx)
+                id_str = chunk + transcript_data['sourcefile'] + str(idx)
                 hash_object = hashlib.sha256()
                 hash_object.update(id_str.encode('utf-8'))
                 id = hash_object.hexdigest()
