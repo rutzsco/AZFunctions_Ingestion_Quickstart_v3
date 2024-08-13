@@ -87,7 +87,7 @@ def create_chunks(chunks_content_dict, chunk_size, overlap):
         max_page = max(pages.keys())
         middle_page = (min_page + max_page) // 2
 
-        source_record = chunks_content_dict[middle_page]
+        source_record = chunks_content_dict[middle_page].copy()
         source_record['content'] = chunk
         try:
             del source_record['embeddings']
