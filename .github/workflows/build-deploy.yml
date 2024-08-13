@@ -4,16 +4,15 @@ on:
   push:
     branches:
       - main
-env:
-  CONTAINER_REGISTRY_URL: ${{ vars.CONTAINER_REGISTRY_URL}}
-  CONTAINER_REGISTRY_REPOSITORY_NAME: ${{ vars.CONTAINER_REGISTRY_REPOSITORY_NAME }}
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      CONTAINER_REGISTRY_URL: ${{ vars.CONTAINER_REGISTRY_URL}}
+      CONTAINER_REGISTRY_REPOSITORY_NAME: ${{ vars.CONTAINER_REGISTRY_REPOSITORY_NAME }}
     outputs:
       image-version: ${{ steps.set-variables.outputs.IMAGE_VERSION }}
-
     steps:
       
       - name: ECHO VARIABLES
@@ -44,7 +43,7 @@ jobs:
         with:
           context: .
           push: true
-          tags: ${{ env.CONTAINER_REGISTRY_URL }}/custom-chat-copilot/ingestion-functions-v3:${{ steps.date.outputs.tag }}
+          tags: ${{ env.CONTAINER_REGISTRY_URL }}/${{ env.CONTAINER_REGISTRY_URL }}/${{ env.CONTAINER_REGISTRY_URL }}:${{ steps.date.outputs.tag }}
 
       - name: Set image name for other jobs
         id: set-variables
@@ -72,7 +71,9 @@ jobs:
           echo "CONTAINER_REGISTRY_URL = $CONTAINER_REGISTRY_URL"
           echo "CONTAINER_REGISTRY_REPOSITORY_NAME = $CONTAINER_REGISTRY_REPOSITORY_NAME"
           echo "INGESTION_FUNCTION_STORAGE_ACCOUNT_NAME = $INGESTION_FUNCTION_STORAGE_ACCOUNT_NAME"
-
+          echo "ACA_ENVIRONMENT_NAME = $ACA_ENVIRONMENT_NAME"
+          echo "RESOURCE_GROUP_NAME = $RESOURCE_GROUP_NAME"
+          
       - name: Deploy to server       
         run: |
          az functionapp create --name ingestionservicev3 --storage-account ${{ env.INGESTION_FUNCTION_STORAGE_ACCOUNT_NAME }} --environment ${{ env.ACA_ENVIRONMENT_NAME }} --resource-group ${{ env.RESOURCE_GROUP_NAME }} --functions-version 4 --runtime python --image "${{ env.CONTAINER_REGISTRY_URL }}/${{ env.CONTAINER_REGISTRY_URL }}:$IMAGE_VERSION"
