@@ -71,7 +71,8 @@ jobs:
           echo "IMAGE_VERSION = $IMAGE_VERSION"
           echo "CONTAINER_REGISTRY_URL = $CONTAINER_REGISTRY_URL"
           echo "CONTAINER_REGISTRY_REPOSITORY_NAME = $CONTAINER_REGISTRY_REPOSITORY_NAME"
+          echo "CONTAINER_REGISTRY_REPOSITORY_NAME = $CONTAINER_REGISTRY_REPOSITORY_NAME"
 
       - name: Deploy to server       
         run: |
-         az functionapp create --name ingestionservicev3 --storage-account rutzscochatcopilotdfunsa --environment rutzsco-chat-copilot-demo --resource-group rutzsco-chat-copilot-demo --functions-version 4 --runtime python --image "rutzscolabcr.azurecr.io/custom-chat-copilot/ingestion-functions-v3:$IMAGE_VERSION"
+         az functionapp create --name ingestionservicev3 --storage-account ${{ env.INGESTION_FUNCTION_STORAGE_ACCOUNT_NAME }} --environment rutzsco-chat-copilot-demo --resource-group rutzsco-chat-copilot-demo --functions-version 4 --runtime python --image "rutzscolabcr.azurecr.io/custom-chat-copilot/ingestion-functions-v3:$IMAGE_VERSION"
