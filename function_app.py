@@ -867,6 +867,7 @@ def delete_documents_orchestrator(context):
     deleted_image_analysis_files = []
     deleted_page_files = []
     deleted_source_files = []
+    deleted_transcripts_files = []
 
     if delete_all_files:
         delete_extract_file_tasks = []
@@ -932,13 +933,16 @@ def get_source_files(activitypayload: str):
     try:
         # Get a ContainerClient object from the BlobServiceClient
         container_client = blob_service_client.get_container_client(source_container)
+        # List all blobs in the container that start with the specified prefix
+        blobs = container_client.list_blobs(name_starts_with=prefix)
+
     except Exception as e:
         # If the container does not exist, return an empty list
         return []
-    
-    # List all blobs in the container that start with the specified prefix
-    blobs = container_client.list_blobs(name_starts_with=prefix)
 
+    if not container_client.exists():
+        return []
+    
     # Initialize an empty list to store the names of the files
     files = []
 
@@ -967,6 +971,9 @@ def delete_source_files(activitypayload: str):
     
     # Get a ContainerClient object from the BlobServiceClient
     container_client = blob_service_client.get_container_client(source_container)
+
+    if not container_client.exists():
+        return []
     
     # List all blobs in the container that start with the specified prefix
     blobs = container_client.list_blobs(name_starts_with=prefix)
