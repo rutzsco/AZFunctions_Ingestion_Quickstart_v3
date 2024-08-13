@@ -1473,7 +1473,7 @@ def chunk_extracts(activitypayload: str):
                     extract_data['content'] += f'\n\nVisual Components Description:\n{str(visual_description)}'
                     extract_data['content'] = str(extract_data['content'])
 
-            id_str = extract_data['content'] + extract_data['sourcepage']
+            id_str = extract_data['content'] + file
             hash_object = hashlib.sha256()
             hash_object.update(id_str.encode('utf-8'))
             id = hash_object.hexdigest()
@@ -1504,7 +1504,7 @@ def chunk_extracts(activitypayload: str):
                     extract_data['content'] += f'\n\nVisual Components Description:\n{str(visual_description)}'
                     extract_data['content'] = str(extract_data['content'])
 
-            id_str = extract_data['content'] + extract_data['sourcepage']
+            id_str = extract_data['content'] + file
             hash_object = hashlib.sha256()
             hash_object.update(id_str.encode('utf-8'))
             id = hash_object.hexdigest()
