@@ -847,6 +847,7 @@ def delete_documents_orchestrator(context):
     doc_intel_results_container = f'{source_container}-doc-intel-results'
     doc_intel_formatted_results_container = f'{source_container}-doc-intel-formatted-results'
     image_analysis_results_container = f'{source_container}-image-analysis-results'
+    transcripts_container = f'{source_container}-transcripts'
 
     prefix_path = prefix_path.split('.')[0]
 
@@ -856,6 +857,7 @@ def delete_documents_orchestrator(context):
     extract_files = yield context.call_activity("get_source_files", json.dumps({'source_container': extract_container,  'prefix': prefix_path, 'extensions': ['.json']}))
     doc_intel_formatted_results_files = yield context.call_activity("get_source_files", json.dumps({'source_container': doc_intel_formatted_results_container,  'prefix': prefix_path, 'extensions': ['.json']}))
     image_analysis_files = yield context.call_activity("get_source_files", json.dumps({'source_container': image_analysis_results_container,  'prefix': prefix_path, 'extensions': ['.json']}))
+    transcripts_files = yield context.call_activity("get_source_files", json.dumps({'source_container': transcripts_container,  'prefix': prefix_path, 'extensions': ['.json']}))
 
     deleted_ai_search_documents = yield context.call_activity("delete_records", json.dumps({'file': extract_files, 'index': index_name, 'extracts-container': extract_container}))
 
@@ -897,12 +899,18 @@ def delete_documents_orchestrator(context):
             delete_source_file_tasks.append(context.call_activity("delete_source_files", json.dumps({'source_container': source_container, 'prefix': file})))
         deleted_source_files = yield context.task_all(delete_source_file_tasks)
 
+        delete_transcripts_file_tasks = []
+        for file in transcripts_files:
+            delete_transcripts_file_tasks.append(context.call_activity("delete_source_files", json.dumps({'source_container': transcripts_container, 'prefix': file})))
+        deleted_transcripts_files = yield context.task_all(delete_transcripts_file_tasks)
+
 
     return json.dumps({'deleted_ai_search_documents': deleted_ai_search_documents, 
                        'deleted_extract_files': deleted_extract_files, 
                        'deleted_doc_intel_files': deleted_doc_intel_files, 
                        'deleted_doc_intel_formatted_files': deleted_doc_intel_formatted_files,
                        'deleted_image_analysis_files': deleted_image_analysis_files,
+                       'deleted_transcript_files': deleted_transcripts_files,
                        'deleted_page_files': deleted_page_files, 
                        'deleted_source_files': deleted_source_files})
 
@@ -921,8 +929,12 @@ def get_source_files(activitypayload: str):
     # Create a BlobServiceClient object which will be used to create a container client
     blob_service_client = BlobServiceClient.from_connection_string(os.environ['STORAGE_CONN_STR'])
     
-    # Get a ContainerClient object from the BlobServiceClient
-    container_client = blob_service_client.get_container_client(source_container)
+    try:
+        # Get a ContainerClient object from the BlobServiceClient
+        container_client = blob_service_client.get_container_client(source_container)
+    except Exception as e:
+        # If the container does not exist, return an empty list
+        return []
     
     # List all blobs in the container that start with the specified prefix
     blobs = container_client.list_blobs(name_starts_with=prefix)
