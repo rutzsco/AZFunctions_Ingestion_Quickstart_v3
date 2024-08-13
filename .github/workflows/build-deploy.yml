@@ -73,7 +73,7 @@ jobs:
           echo "INGESTION_FUNCTION_STORAGE_ACCOUNT_NAME = $INGESTION_FUNCTION_STORAGE_ACCOUNT_NAME"
           echo "ACA_ENVIRONMENT_NAME = $ACA_ENVIRONMENT_NAME"
           echo "RESOURCE_GROUP_NAME = $RESOURCE_GROUP_NAME"
-          
+
       - name: Deploy to server       
         run: |
-         az functionapp create --name ingestionservicev3 --storage-account ${{ env.INGESTION_FUNCTION_STORAGE_ACCOUNT_NAME }} --environment ${{ env.ACA_ENVIRONMENT_NAME }} --resource-group ${{ env.RESOURCE_GROUP_NAME }} --functions-version 4 --runtime python --image "${{ env.CONTAINER_REGISTRY_URL }}/${{ env.CONTAINER_REGISTRY_URL }}:$IMAGE_VERSION"
+         az functionapp create --name ingestionservicev3 --storage-account ${{ env.INGESTION_FUNCTION_STORAGE_ACCOUNT_NAME }} --environment ${{ env.ACA_ENVIRONMENT_NAME }} --resource-group ${{ env.RESOURCE_GROUP_NAME }} --functions-version 4 --runtime python --image "${{ env.CONTAINER_REGISTRY_URL }}/${{ env.CONTAINER_REGISTRY_URL }}:${{ env.IMAGE_VERSION }}"
