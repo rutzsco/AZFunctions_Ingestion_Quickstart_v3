@@ -6,19 +6,22 @@ on:
       - main
 env:
   CONTAINER_REGISTRY_URL: ${{ vars.CONTAINER_REGISTRY_URL}}
-  REPOSITORY_NAME: ${{ vars.REPOSITORY_NAME }}
+  CONTAINER_REGISTRY_REPOSITORY_NAME: ${{ vars.CONTAINER_REGISTRY_REPOSITORY_NAME }}
 
 jobs:
   build:
     runs-on: ubuntu-latest
     outputs:
-      image-version: ${{ steps.image-version.outputs.IMAGE_VERSION }}
+      image-version: ${{ steps.set-variables.outputs.IMAGE_VERSION }}
+      container-registry-url: ${{ steps.set-variables.outputs.CONTAINER_REGISTRY_URL }}
+      container-registry-repository-name: ${{ steps.set-variables.outputs.CONTAINER_REGISTRY_REPOSITORY_NAME }}
     steps:
       
       - name: ECHO VARIABLES
         run: |
           echo "IMAGE_VERSION = $IMAGE_VERSION"
-          echo "REPOSITORY_NAME = $REPOSITORY_NAME"  
+          echo "CONTAINER_REGISTRY_URL = $CONTAINER_REGISTRY_URL" 
+          echo "CONTAINER_REGISTRY_REPOSITORY_NAME = $CONTAINER_REGISTRY_REPOSITORY_NAME"  
 
       - name: Checkout code
         uses: actions/checkout@v2
@@ -45,15 +48,19 @@ jobs:
           tags: ${{ env.CONTAINER_REGISTRY_URL }}/custom-chat-copilot/ingestion-functions-v3:${{ steps.date.outputs.tag }}
 
       - name: Set image name for other jobs
-        id: image-version
+        id: set-variables
         run: |
           echo "IMAGE_VERSION=${{ steps.date.outputs.tag }}" >> $GITHUB_OUTPUT
+          echo "CONTAINER_REGISTRY_URL=${{ env.CONTAINER_REGISTRY_URL }}" >> $GITHUB_OUTPUT
+          echo "CONTAINER_REGISTRY_REPOSITORY_NAME=${{ env.CONTAINER_REGISTRY_REPOSITORY_NAME }}" >> $GITHUB_OUTPUT
 
   deploy:
     needs: build
     runs-on: ubuntu-latest
     env:
       IMAGE_VERSION: ${{ needs.build.outputs.image-version }}
+      CONTAINER_REGISTRY_URL: ${{ needs.build.outputs.image-version }}
+      CONTAINER_REGISTRY_REPOSITORY_NAME: ${{ needs.build.outputs.image-version }}
     steps:
       - uses: azure/login@v1
         with:
@@ -61,9 +68,10 @@ jobs:
 
       - name: ECHO VARIABLES
         run: |
-          echo "IMAGE_NAME = $IMAGE_NAME"
           echo "IMAGE_VERSION = $IMAGE_VERSION"
-        
+          echo "CONTAINER_REGISTRY_URL = $CONTAINER_REGISTRY_URL"
+          echo "CONTAINER_REGISTRY_REPOSITORY_NAME = $CONTAINER_REGISTRY_REPOSITORY_NAME"
+
       - name: Deploy to server       
         run: |
          az functionapp create --name ingestionservicev3 --storage-account rutzscochatcopilotdfunsa --environment rutzsco-chat-copilot-demo --resource-group rutzsco-chat-copilot-demo --functions-version 4 --runtime python --image "rutzscolabcr.azurecr.io/custom-chat-copilot/ingestion-functions-v3:$IMAGE_VERSION"
