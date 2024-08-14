@@ -1931,7 +1931,7 @@ def pdf_bytes_to_png_bytes(pdf_bytes, page_number=1):
     page = document.load_page(page_number - 1)  # Adjust for zero-based index
 
     # Render page to an image
-    pix = page.get_pixmap()
+    pix = page.get_pixmap(dpi=200)
 
     # Convert the PyMuPDF pixmap into a Pillow Image
     img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
