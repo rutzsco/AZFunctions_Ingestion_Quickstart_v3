@@ -78,6 +78,8 @@ az functionapp config container set \
   --docker-registry-server-password <password>
 ```
 
+### CLI Deployment
+
 The code contained within this repo can be deployed to your Azure Function app using the [deployment approaches outlined in this document](https://learn.microsoft.com/en-us/azure/azure-functions/functions-deployment-technologies?tabs=windows). For initial deployment, we recommend using either the [Azure Functions Extension for VS Code](https://learn.microsoft.com/en-us/azure/azure-functions/functions-develop-vs-code?tabs=node-v4%2Cpython-v2%2Cisolated-process&pivots=programming-language-python) or the Azure Functions Core tools locally:
 
 ```
