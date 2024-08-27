@@ -241,7 +241,7 @@ def analyze_image(b64_image_bytes):
     # Regex pattern to match the outer-most JSON object
     pattern = re.compile(r'\{.*\}', re.DOTALL)
     # Search for the JSON object
-    match = pattern.search(resp_str)
+    match = pattern.search(out_str)
 
     # Extract and print the JSON object if found
     if match:

@@ -54,7 +54,32 @@ Configure the environment variables in your Azure Function App settings as follo
 
 <i>Note: review the `sample.settings.json` to create a `local.settings.json` environment file for local execution.</i>
 
-### Deployment
+
+## Deployment
+
+### Container Deployment (Recommended)
+
+Build and push the container image to an Azure Container Registry, then update your app configuration with the published image.
+
+```
+docker login <ACRNAME>.azurecr.io
+docker build . -t <ACRNAME>.azurecr.io/ingestionfunctions:1
+docker push <ACRNAME>.azurecr.io/ingestionfunctions:1
+```
+
+Configuration update using the Azure CLI - Note: this can be performed manually.
+```
+az functionapp config container set \
+  --name <function-app-name> \
+  --resource-group <resource-group-name> \
+  --docker-custom-image-name <ACRNAME>.azurecr.io/ingestionfunctions:1 \
+  --docker-registry-server-url <registry-url> \
+  --docker-registry-server-user <username> \
+  --docker-registry-server-password <password>
+```
+
+### CLI Deployment
+
 The code contained within this repo can be deployed to your Azure Function app using the [deployment approaches outlined in this document](https://learn.microsoft.com/en-us/azure/azure-functions/functions-deployment-technologies?tabs=windows). For initial deployment, we recommend using either the [Azure Functions Extension for VS Code](https://learn.microsoft.com/en-us/azure/azure-functions/functions-develop-vs-code?tabs=node-v4%2Cpython-v2%2Cisolated-process&pivots=programming-language-python) or the Azure Functions Core tools locally:
 
 ```
