@@ -14,6 +14,7 @@ import fitz as pymupdf
 from PIL import Image
 import io
 import base64
+import random
 
 from doc_intelligence_utilities import analyze_pdf, extract_results
 from aoai_utilities import generate_embeddings, classify_image, analyze_image, get_transcription
@@ -914,6 +915,117 @@ def delete_documents_orchestrator(context):
                        'deleted_transcript_files': deleted_transcripts_files,
                        'deleted_page_files': deleted_page_files, 
                        'deleted_source_files': deleted_source_files})
+
+@app.orchestration_trigger(context_name="context")
+def qna_pair_generation_orchestrator(context):
+
+    first_retry_interval_in_milliseconds = 5000
+    max_number_of_attempts = 2
+    retry_options = df.RetryOptions(first_retry_interval_in_milliseconds, max_number_of_attempts)
+    
+    # Get the input payload from the context
+    payload = context.get_input()
+    
+    # Extract the container name, index stem name, and prefix path from the payload
+    extract_container = payload.get("extract_container")
+    prefix_path = payload.get("prefix_path")
+    target_pair_count = int(payload.get("target_pair_count"))
+
+    # Retrieve source documents
+    source_files = yield context.call_activity("get_source_files", json.dumps({'source_container': extract_container,  'prefix': prefix_path, 'extensions': ['.json']}))
+
+    # Review all documents and find those with content > len(250) - shuffle and filter step
+    try:
+        review_file_tasks = []
+        for file in source_files:
+            review_file_tasks.append(context.call_activity_with_retry("review_files_for_qna", retry_options, json.dumps({'source_container': extract_container, 'filename': file})))
+        reviewed_files = yield context.task_all(review_file_tasks)
+        reviewed_files = [x for x in reviewed_files if x is not None]
+        context.set_custom_status('Converted Documents to PDF')
+    except Exception as e:
+        raise e
+
+    # Iterate over all documents and generate QnA pairs
+    data_for_qna = yield context.call_activity_with_retry("retrieve_files_for_qna", retry_options, json.dumps({'source_container': extract_container, 'files': reviewed_files, 'pair_count': target_pair_count}))
+
+    try:
+        qna_pairs = []
+        for extract in data_for_qna:
+            pass
+    except Exception as e:
+        pass
+
+
+@app.activity_trigger(input_name="activitypayload")
+def retrieve_files_for_qna(activitypayload: str):
+
+    # Load the activity payload as a JSON string
+    data = json.loads(activitypayload)
+    
+    # Extract the source container, file extension, and prefix from the payload
+    source_container = data.get("source_container")
+    files = data.get("files")
+    pair_count = int(data.get('pair_count'))
+    
+    # Shuffle files
+    random.shuffle(files)
+
+    # Filter files if necessary
+    if pair_count > -1 and pair_count <= len(files):
+        files = files[:pair_count]
+
+    return_files = []
+
+    blob_service_client = BlobServiceClient.from_connection_string(os.environ['STORAGE_CONN_STR'])
+    container_client = blob_service_client.get_container_client(source_container)
+
+    for file in files:
+        blob_client = container_client.get_blob_client(file)
+        data = blob_client.download_blob().readall()
+        data = json.loads(data)
+        try:
+            del data['embeddings']
+        except Exception as e:
+            pass
+        return_files.append(data)
+
+    return return_files
+
+  
+
+@app.activity_trigger(input_name="activitypayload")
+def review_files_for_qna(activitypayload: str):
+
+    # Load the activity payload as a JSON string
+    data = json.loads(activitypayload)
+    
+    # Extract the source container, file extension, and prefix from the payload
+    source_container = data.get("source_container")
+    file = data.get("filename")
+    file_length_threshold = 250
+    
+    # Create a BlobServiceClient object which will be used to create a container client
+    blob_service_client = BlobServiceClient.from_connection_string(os.environ['STORAGE_CONN_STR'])
+    
+    try:
+        # Get a ContainerClient object from the BlobServiceClient
+        container_client = blob_service_client.get_container_client(source_container)
+        # List all blobs in the container that start with the specified prefix
+        blob_client = container_client.get_blob_client(file)
+
+        data = blob_client.download_blob().readall()
+        data = json.loads(data)
+
+        if len(data['content']) > 250:
+            return file
+        
+        else:
+            return None
+
+    except Exception as e:
+        # If the container does not exist, return an empty list
+        return None
+
 
 # Activities
 @app.activity_trigger(input_name="activitypayload")
