@@ -207,7 +207,7 @@ def create_vector_index(stem_name, user_fields, omit_timestamp=False):
     client = SearchIndexClient(endpoint=search_endpoint, credential=credential)
 
     # Define the fields for the index
-    fields = [SimpleField(name="id", type=SearchFieldDataType.String, key=True)]
+    fields = [SimpleField(name="id", type=SearchFieldDataType.String, key=True), SimpleField(name="sourcefileref", type=SearchFieldDataType.String,searchable=False, filterable=True)]
     
     # Add user-defined fields to the index
     for field, field_type in user_fields.items():
