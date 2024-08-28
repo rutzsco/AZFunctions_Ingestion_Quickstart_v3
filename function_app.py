@@ -15,9 +15,10 @@ from PIL import Image
 import io
 import base64
 import random
+import pandas as pd
 
 from doc_intelligence_utilities import analyze_pdf, extract_results
-from aoai_utilities import generate_embeddings, classify_image, analyze_image, get_transcription
+from aoai_utilities import generate_embeddings, classify_image, analyze_image, get_transcription, generate_qna_pair
 from ai_search_utilities import create_vector_index, get_current_index, insert_documents_vector, delete_documents_vector
 from chunking_utils import create_chunks, split_text
 import tempfile
@@ -941,7 +942,7 @@ def qna_pair_generation_orchestrator(context):
             review_file_tasks.append(context.call_activity_with_retry("review_files_for_qna", retry_options, json.dumps({'source_container': extract_container, 'filename': file})))
         reviewed_files = yield context.task_all(review_file_tasks)
         reviewed_files = [x for x in reviewed_files if x is not None]
-        context.set_custom_status('Converted Documents to PDF')
+        context.set_custom_status('Reviewed and shuffled chunks')
     except Exception as e:
         raise e
 
@@ -949,11 +950,69 @@ def qna_pair_generation_orchestrator(context):
     data_for_qna = yield context.call_activity_with_retry("retrieve_files_for_qna", retry_options, json.dumps({'source_container': extract_container, 'files': reviewed_files, 'pair_count': target_pair_count}))
 
     try:
-        qna_pairs = []
+        qna_pairs_tasks = []
         for extract in data_for_qna:
-            pass
+            qna_pairs_tasks.append(context.call_activity_with_retry("generate_qna_pair", retry_options, json.dumps(extract)))
+        qna_pairs = yield context.task_all(qna_pairs_tasks)
+        qna_pairs = [x for x in qna_pairs if x is not None]
     except Exception as e:
         pass
+
+    saved_qna_file = yield context.call_activity("save_qna_pairs", json.dumps({'records': qna_pairs, 'source_container': extract_container}))
+
+    return saved_qna_file
+
+@app.activity_trigger(input_name="activitypayload")
+def save_qna_pairs(activitypayload: str):
+
+    # Load the activity payload as a JSON string
+    data = json.loads(activitypayload)
+    records = data.get('records')
+    source_container = data.get('source_container')
+
+    qna_container = f'{source_container}_qna_pairs'
+
+    # Create a BlobServiceClient object which will be used to create a container client
+    blob_service_client = BlobServiceClient.from_connection_string(os.environ['STORAGE_CONN_STR'])
+                                                                   
+    try:
+        blob_service_client.create_container(qna_container)
+    except Exception as e:
+        pass
+
+    df = pd.DataFrame(records)
+    csv_buffer = BytesIO()
+    df.to_csv(csv_buffer, index=False)
+    csv_buffer.seek(0)  
+
+    now = datetime.now()
+    timestamp_str = now.strftime("%Y%m%d%H%M%S")
+    filename = f'qna_pairs_{timestamp_str}.csv'
+
+    # Create a BlobClient
+    blob_client = blob_service_client.get_blob_client(container=qna_container, blob=filename)
+
+    # Upload the CSV data to the blob
+    blob_client.upload_blob(csv_buffer, overwrite=True)
+
+    return filename
+
+
+@app.activity_trigger(input_name="activitypayload")
+def generate_qna_pair(activitypayload: str):
+
+    # Load the activity payload as a JSON string
+    data = json.loads(activitypayload)
+    
+    qna_pair = generate_qna_pair(data['content'])
+
+    qna_pair['chunk_id'] = data['id']
+    qna_pair['sourcefile'] = data['sourcefile']
+    qna_pair['content'] = data['content']
+    if 'sourcepage' in data.keys():
+        qna_pair['sourcepage'] = data['sourcepage']
+
+    return qna_pair
 
 
 @app.activity_trigger(input_name="activitypayload")
@@ -1005,11 +1064,12 @@ def review_files_for_qna(activitypayload: str):
     file_length_threshold = 250
     
     # Create a BlobServiceClient object which will be used to create a container client
-    blob_service_client = BlobServiceClient.from_connection_string(os.environ['STORAGE_CONN_STR'])
+    blob_service_client = BlobServiceClient.from_connection_string(os.environ['STORAGE_CONN_STR']
+                                                                   
+    # Get a ContainerClient object from the BlobServiceClient
+    container_client = blob_service_client.get_container_client(source_container))
     
     try:
-        # Get a ContainerClient object from the BlobServiceClient
-        container_client = blob_service_client.get_container_client(source_container)
         # List all blobs in the container that start with the specified prefix
         blob_client = container_client.get_blob_client(file)
 

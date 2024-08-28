@@ -250,3 +250,59 @@ def analyze_image(b64_image_bytes):
     return out_str
         
 
+def generate_qna_pair(content):
+    sys_msg = """You are a helpful AI assistant who reviews snippets of text and generates a question and answer pair that can be UNIQUELY answered by the content within the provided text. The question-answer pair you generate should be specific to the underlying information in the provided text, rather than about the text itself. Please try to be specific where possible rather than generic.
+
+    Your output format should be a JSON object with the following structure:
+
+    {
+        'question': '',
+        'answer':''
+    }
+    """
+    user_msg = f"""Generate a question/answer pair based on the following content.
+
+    ## CONTENT: {content}
+    """
+    
+    messages = [ 
+            { "role": "system", "content": sys_msg }, 
+            {"role": "user", "content": user_msg}
+    ]
+
+    api_base = os.environ['AOAI_ENDPOINT']
+    api_key = os.environ['AOAI_KEY']
+    deployment_name = os.environ['AOAI_GPT_VISION_MODEL']
+
+    base_url = f"{api_base}openai/deployments/{deployment_name}" 
+    headers = {   
+        "Content-Type": "application/json",   
+        "api-key": api_key 
+    } 
+    endpoint = f"{base_url}/chat/completions?api-version=2023-12-01-preview" 
+    data = { 
+        "messages": messages, 
+        "temperature": 0.0,
+        "top_p": 0.95,
+        "max_tokens": 500,
+        "response_format": {"type": "json"}
+    }   
+
+    # Make the API call   
+    processed = False
+    out_str = ''
+
+    while not processed:
+        try:
+            response = requests.post(endpoint, headers=headers, data=json.dumps(data)) 
+            resp_str = response.json()['choices'][0]['message']['content']
+            out_str = resp_str
+            processed = True
+        except Exception as e:
+            if 'exceeded token rate' in str(e).lower():
+                time.sleep(5)
+            else:
+                processed = True
+                
+    return json.loads(out_str)
+    
