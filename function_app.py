@@ -18,7 +18,7 @@ import random
 import pandas as pd
 
 from doc_intelligence_utilities import analyze_pdf, extract_results
-from aoai_utilities import generate_embeddings, classify_image, analyze_image, get_transcription, generate_qna_pair
+from aoai_utilities import generate_embeddings, classify_image, analyze_image, get_transcription, generate_qna_pair_helper
 from ai_search_utilities import create_vector_index, get_current_index, insert_documents_vector, delete_documents_vector
 from chunking_utils import create_chunks, split_text
 import tempfile
@@ -931,6 +931,8 @@ def qna_pair_generation_orchestrator(context):
     extract_container = payload.get("extract_container")
     prefix_path = payload.get("prefix_path")
     target_pair_count = int(payload.get("target_pair_count"))
+    if target_pair_count==0 or target_pair_count<-1:
+        raise Exception("Invalid target pair count. Specify -1 to generate QnA pairs for all chunks in the collection, or specify a non-zero positive number.")
 
     # Retrieve source documents
     source_files = yield context.call_activity("get_source_files", json.dumps({'source_container': extract_container,  'prefix': prefix_path, 'extensions': ['.json']}))
@@ -970,7 +972,7 @@ def save_qna_pairs(activitypayload: str):
     records = data.get('records')
     source_container = data.get('source_container')
 
-    qna_container = f'{source_container}_qna_pairs'
+    qna_container = f'{source_container}-qna-pairs'
 
     # Create a BlobServiceClient object which will be used to create a container client
     blob_service_client = BlobServiceClient.from_connection_string(os.environ['STORAGE_CONN_STR'])
@@ -1004,7 +1006,7 @@ def generate_qna_pair(activitypayload: str):
     # Load the activity payload as a JSON string
     data = json.loads(activitypayload)
     
-    qna_pair = generate_qna_pair(data['content'])
+    qna_pair = generate_qna_pair_helper(data['content'])
 
     qna_pair['chunk_id'] = data['id']
     qna_pair['sourcefile'] = data['sourcefile']
@@ -1064,10 +1066,10 @@ def review_files_for_qna(activitypayload: str):
     file_length_threshold = 250
     
     # Create a BlobServiceClient object which will be used to create a container client
-    blob_service_client = BlobServiceClient.from_connection_string(os.environ['STORAGE_CONN_STR']
+    blob_service_client = BlobServiceClient.from_connection_string(os.environ['STORAGE_CONN_STR'])
                                                                    
     # Get a ContainerClient object from the BlobServiceClient
-    container_client = blob_service_client.get_container_client(source_container))
+    container_client = blob_service_client.get_container_client(source_container)
     
     try:
         # List all blobs in the container that start with the specified prefix

@@ -250,8 +250,12 @@ def analyze_image(b64_image_bytes):
     return out_str
         
 
-def generate_qna_pair(content):
-    sys_msg = """You are a helpful AI assistant who reviews snippets of text and generates a question and answer pair that can be UNIQUELY answered by the content within the provided text. The question-answer pair you generate should be specific to the underlying information in the provided text, rather than about the text itself. Please try to be specific where possible rather than generic.
+def generate_qna_pair_helper(content):
+    sys_msg = """You are a helpful AI assistant who reviews snippets of documents and generates a question and answer pair that can be UNIQUELY answered by the content within the provided document. 
+    The question-answer pair you generate should be specific to the underlying information in the provided documents, rather than a question about the document itself. 
+    To the extent possible, these questions should cover broader ideas.
+    Ideally, these questions should be answerable without an individual having the document directly in front of them.
+    For instance, ask 'What are the emerging trends in AI in 2024?' rather than 'What are the key AI trends listed in the document?' 
 
     Your output format should be a JSON object with the following structure:
 
@@ -285,7 +289,7 @@ def generate_qna_pair(content):
         "temperature": 0.0,
         "top_p": 0.95,
         "max_tokens": 500,
-        "response_format": {"type": "json"}
+        "response_format": {"type": "json_object"}
     }   
 
     # Make the API call   
