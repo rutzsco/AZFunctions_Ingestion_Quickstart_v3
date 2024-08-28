@@ -1463,6 +1463,9 @@ def chunk_extracts(activitypayload: str):
             # Load the extracts file as a JSON string
             extract_data = json.loads((extract_blob_client.download_blob().readall()).decode('utf-8'))
 
+            # Create a shortened file reference for the source file attached to the extract
+            extract_data['sourcefileref'] = hashlib.md5(extract_data['sourcefile'].encode()) + extract_data['sourcefile'].split('.')[-1]
+
             # Load the image analysis file as a JSON string
             if image_analysis_client.exists():
                 image_analysis_data = json.loads(image_analysis_client.download_blob().readall())
@@ -1493,6 +1496,9 @@ def chunk_extracts(activitypayload: str):
 
             # Load the extracts file as a JSON string
             extract_data = json.loads((extract_blob_client.download_blob().readall()).decode('utf-8'))
+
+            # Create a shortened file reference for the source file attached to the extract
+            extract_data['sourcefileref'] = hashlib.md5(extract_data['sourcefile'].encode()) + extract_data['sourcefile'].split('.')[-1]
 
             # Load the image analysis file as a JSON string
             if image_analysis_client.exists():
