@@ -19,3 +19,4 @@ filetype==1.2.0
 pillow==10.2.0
 pymupdf==1.24.0
 pymupdfb==1.24.0
+pandas==2.0.2
