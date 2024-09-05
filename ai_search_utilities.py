@@ -222,9 +222,11 @@ def create_vector_index(stem_name, user_fields, omit_timestamp=False):
         elif field_type == 'bool':
             fields.append(SimpleField(name=field, type=SearchFieldDataType.Boolean, searchable=False, filterable=True))
 
+    vector_dimensions = os.environ.get('AOAI_EMBEDDINGS_DIMENSIONS')
+
     # Add a field for vector embeddings
     fields = fields + [ SearchField(name="embeddings", type=SearchFieldDataType.Collection(SearchFieldDataType.Single),
-                    searchable=True, vector_search_dimensions=1536, vector_search_profile_name="vector-config")]
+                    searchable=True, vector_search_dimensions=vector_dimensions, vector_search_profile_name="vector-config")]
     
     # Define vector search configurations
     vector_search = VectorSearch(

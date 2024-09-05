@@ -42,6 +42,7 @@ Configure the environment variables in your Azure Function App settings as follo
 | `AOAI_KEY`                   | Key for Azure OpenAI service                              |
 | `AOAI_ENDPOINT`              | Endpoint for Azure OpenAI service                         |
 | `AOAI_EMBEDDINGS_MODEL`      | Model for generating embeddings with Azure OpenAI         |
+| `AOAI_EMBEDDINGS_DIMENSIONS`      | Number of vector dimensions associated with the Azure OpenAI embedding model (1536 for `text-embedding-ada-002`)         |
 | `AOAI_GPT_VISION_MODEL`      | Azure OpenAI GPT-4 model with vision support (GPT-4o or GPT-4-Turbo w/ Vision) |
 | `SEARCH_ENDPOINT`            | Endpoint for Azure AI Search service                      |
 | `SEARCH_KEY`                 | Key for Azure AI Search service                           |
