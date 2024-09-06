@@ -5,9 +5,13 @@ FROM mcr.microsoft.com/azure-functions/python:4-python3.11
 ENV AzureWebJobsScriptRoot=/home/site/wwwroot \
     AzureFunctionsJobHost__Logging__Console__IsEnabled=true
 
-RUN apt-get update 
-RUN apt-get install -y build-essential libssl-dev libffi-dev python-dev
-RUN apt-get install -y libreoffice
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    libffi-dev \
+    libreoffice \
+    libssl-dev \
+    python-dev \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt /
 RUN pip install -r /requirements.txt

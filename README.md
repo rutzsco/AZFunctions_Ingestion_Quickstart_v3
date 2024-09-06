@@ -89,6 +89,28 @@ func azure functionapp publish <YOUR-FUNCTION-APP-NAME>
 func azure functionapp publish <YOUR-FUNCTION-APP-NAME> --publish-settings-only
 ```
 
+## Deployment using CLI into existing Container Apps Environment without existing Function App
+
+1. Build & push the Docker image as indicated above to the Container Registry.
+
+1. Create a new Container Apps Environment workload profile to run your Function Apps in (the default Consumption profile is likely insufficient for this workload)
+
+```shell
+az containerapp env workload-profile add -g <resource-group-name> -n <container-apps-environment> --workload-profile-name func --workload-profile-type D4 --min-nodes 1 --max-nodes 40
+```
+
+1. Deploy your Function App to this new workload profile.
+
+```shell
+az functionapp create --name <function-app-name> --storage-account <storage-account-name> --environment <container-app-environment-name> --workload-profile-name func --resource-group <resource-group-name> --functions-version 4 --runtime python --image <container-registry-login-server>/ingestionfunction:1
+```
+
+1. Update the configuration values with your environment. You can create a local JSON file (`container-app.settings.json`, modeled on the `sample.container-app.settings` file)with all of these values and reference it in the following command. You will need to copy the various values for this file from the various Azure servies in the Portal.
+
+```shell
+az functionapp config appsettings set -g <resource-group-name> -n <function-app-name> --settings "@container-app.settings.json"
+```
+
 ## Utilization & Testing
 
 Shown below are some of the common calls the created functions for creating, and populating an Azure AI Search index using files uploaded to Azure Blob Storage.
