@@ -10,7 +10,7 @@ import re
 import logging
 
 
-def generate_embeddings(text):
+def generate_embeddings(text, model_name=None):
     """
     Generates embeddings for the given text using the specified embeddings model provided by OpenAI.
 
@@ -31,13 +31,17 @@ def generate_embeddings(text):
         azure_endpoint=os.environ['AOAI_ENDPOINT'], api_key=os.environ['AOAI_KEY'], api_version="2023-03-15-preview"
     )
 
+    embedding_model = os.environ['AOAI_EMBEDDINGS_MODEL']
+    if model_name is not None:
+        embedding_model = model_name
+
     # Initialize variable to track if the embeddings have been processed
     processed = False
     # Attempt to generate embeddings, retrying on failure
     while not processed:
         try:
             # Make API call to OpenAI to generate embeddings
-            response = client.embeddings.create(input=text, model=os.environ['AOAI_EMBEDDINGS_MODEL'])
+            response = client.embeddings.create(input=text, model=embedding_model)
             processed = True
         except Exception as e:  # Catch any exceptions and retry after a delay
             logging.error(e)

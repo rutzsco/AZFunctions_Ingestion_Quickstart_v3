@@ -9,15 +9,12 @@
 	"item": [
 		{
 			"name": "Trigger PDF Ingestion",
-			"protocolProfileBehavior": {
-				"disableBodyPruning": true
-			},
 			"request": {
-				"method": "GET",
+				"method": "POST",
 				"header": [],
 				"body": {
 					"mode": "raw",
-					"raw": "{\r\n    \"source_container\": \"pdf-content\",\r\n    \"extract_container\": \"pdf-extract\",\r\n    \"prefix_path\": \"\",\r\n    \"index_name\": \"\",\r\n    \"automatically_delete\": false,\r\n    \"analyze_images\": true,\r\n    \"overlapping_chunks\": true,\r\n    \"chunk_size\": 600,\r\n    \"overlap\": 200\r\n}",
+					"raw": "{\r\n    \"source_container\": \"pdf-content\",\r\n    \"extract_container\": \"pdf-extract\",\r\n    \"prefix_path\": \"\",\r\n    \"index_name\": \"\",\r\n    \"automatically_delete\": false,\r\n    \"analyze_images\": true,\r\n    \"overlapping_chunks\": true,\r\n    \"chunk_size\": 600,\r\n    \"overlap\": 200,\r\n    \"embedding_model\": \"text-embedding-3-large\"\r\n}",
 					"options": {
 						"raw": {
 							"language": "json"
@@ -25,9 +22,9 @@
 					}
 				},
 				"url": {
-					"raw": "{{FUNCTION_URI}}/api/orchestrators/pdf_orchestrator?code={{FUNCTION_KEY}}",
+					"raw": "{{LOCAL_FUNCTION_URI}}/api/orchestrators/pdf_orchestrator?code={{FUNCTION_KEY}}",
 					"host": [
-						"{{FUNCTION_URI}}"
+						"{{LOCAL_FUNCTION_URI}}"
 					],
 					"path": [
 						"api",
@@ -46,15 +43,12 @@
 		},
 		{
 			"name": "Trigger Non-PDF Ingestion",
-			"protocolProfileBehavior": {
-				"disableBodyPruning": true
-			},
 			"request": {
-				"method": "GET",
+				"method": "POST",
 				"header": [],
 				"body": {
 					"mode": "raw",
-					"raw": "{\r\n    \"source_container\": \"doc-content\",\r\n    \"extract_container\": \"doc-extract\",\r\n    \"prefix_path\": \"\",\r\n    \"index_name\": \"\",\r\n    \"automatically_delete\": false,\r\n    \"analyze_images\": true,\r\n    \"overlapping_chunks\": true,\r\n    \"chunk_size\": 600,\r\n    \"overlap\": 200\r\n}",
+					"raw": "{\r\n    \"source_container\": \"doc-content\",\r\n    \"extract_container\": \"doc-extract\",\r\n    \"prefix_path\": \"\",\r\n    \"index_name\": \"\",\r\n    \"automatically_delete\": false,\r\n    \"analyze_images\": true,\r\n    \"overlapping_chunks\": true,\r\n    \"chunk_size\": 600,\r\n    \"overlap\": 200,\r\n    \"embedding_model\": \"text-embedding-3-large\"\r\n}",
 					"options": {
 						"raw": {
 							"language": "json"
@@ -83,11 +77,8 @@
 		},
 		{
 			"name": "Trigger Non-PDF Conversion",
-			"protocolProfileBehavior": {
-				"disableBodyPruning": true
-			},
 			"request": {
-				"method": "GET",
+				"method": "POST",
 				"header": [],
 				"body": {
 					"mode": "raw",
@@ -119,15 +110,12 @@
 		},
 		{
 			"name": "Trigger Audio Ingestion",
-			"protocolProfileBehavior": {
-				"disableBodyPruning": true
-			},
 			"request": {
-				"method": "GET",
+				"method": "POST",
 				"header": [],
 				"body": {
 					"mode": "raw",
-					"raw": "{\r\n    \"source_container\": \"av-content\",\r\n    \"extract_container\": \"av-extract\",\r\n    \"prefix_path\": \"\",\r\n    \"index_name\": \"\",\r\n    \"automatically_delete\": false,\r\n    \"analyze_images\": false,\r\n    \"overlapping_chunks\": true,\r\n    \"chunk_size\": 600,\r\n    \"overlap\": 200\r\n}",
+					"raw": "{\r\n    \"source_container\": \"av-content\",\r\n    \"extract_container\": \"av-extract\",\r\n    \"prefix_path\": \"\",\r\n    \"index_name\": \"\",\r\n    \"automatically_delete\": false,\r\n    \"analyze_images\": false,\r\n    \"overlapping_chunks\": true,\r\n    \"chunk_size\": 600,\r\n    \"overlap\": 200,\r\n    \"embedding_model\": \"text-embedding-3-large\"\r\n}",
 					"options": {
 						"raw": {
 							"language": "json"
@@ -156,15 +144,12 @@
 		},
 		{
 			"name": "Trigger Video Ingestion",
-			"protocolProfileBehavior": {
-				"disableBodyPruning": true
-			},
 			"request": {
-				"method": "GET",
+				"method": "POST",
 				"header": [],
 				"body": {
 					"mode": "raw",
-					"raw": "{\r\n    \"source_container\": \"av-content\",\r\n    \"extract_container\": \"av-extract\",\r\n    \"prefix_path\": \"gpt_4o_demo_video_mp4.mp4\",\r\n    \"index_name\": \"\",\r\n    \"automatically_delete\": false,\r\n    \"analyze_images\": true,\r\n    \"overlapping_chunks\": true,\r\n    \"chunk_size\": 600,\r\n    \"overlap\": 200\r\n}",
+					"raw": "{\r\n    \"source_container\": \"av-content\",\r\n    \"extract_container\": \"av-extract\",\r\n    \"prefix_path\": \"gpt_4o_demo_video_mp4.mp4\",\r\n    \"index_name\": \"\",\r\n    \"automatically_delete\": false,\r\n    \"analyze_images\": true,\r\n    \"overlapping_chunks\": true,\r\n    \"chunk_size\": 600,\r\n    \"overlap\": 200,\r\n    \"embedding_model\": \"text-embedding-3-large\"\r\n}",
 					"options": {
 						"raw": {
 							"language": "json"
@@ -180,6 +165,39 @@
 						"api",
 						"orchestrators",
 						"audio_video_orchestrator"
+					],
+					"query": [
+						{
+							"key": "code",
+							"value": "{{FUNCTION_KEY}}"
+						}
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Create Index",
+			"request": {
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\r\n    \"index_stem_name\": \"test-index\",\r\n    \"fields\": {\"content\": \"string\", \"pagenumber\": \"int\", \"sourcefile\": \"string\", \r\n    \"sourcepage\": \"string\", \"category\": \"string\", \"entra_id\": \"string\", \"session_id\": \"string\"\r\n    },\r\n    \"dimensions\": 3072\r\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{FUNCTION_URI}}/api/create_new_index?code={{FUNCTION_KEY}}",
+					"host": [
+						"{{FUNCTION_URI}}"
+					],
+					"path": [
+						"api",
+						"create_new_index"
 					],
 					"query": [
 						{
