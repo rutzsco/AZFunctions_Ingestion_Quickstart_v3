@@ -162,6 +162,7 @@ cython_debug/
 .python_packages
 
 local.settings.json
+container-app.settings.json
 
 scratch.ipynb
 
