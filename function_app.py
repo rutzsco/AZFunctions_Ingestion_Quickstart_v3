@@ -2217,3 +2217,24 @@ def convert_to_pdf_helper(input_bytes):
     
     # Return the PDF bytes
     return pdf_bytes
+
+@app.route(route="list_files_in_container", auth_level=func.AuthLevel.FUNCTION)
+def list_files_in_container(req: func.HttpRequest) -> func.HttpResponse:
+    # Get the JSON payload from the request
+    data = req.get_json()
+    # Extract the index stem name from the payload
+    container = data.get("container")
+
+    # Create a BlobServiceClient object which will be used to create a container client
+    blob_service_client = BlobServiceClient.from_connection_string(os.environ['STORAGE_CONN_STR'])
+
+    # Get a ContainerClient object for the extracts container
+    container_client = blob_service_client.get_container_client(container=container)
+
+    # Get a list of blobs in the container
+    blobs = []
+    for blob in container_client.list_blobs():
+        blobs.append(blob.name)
+
+    return json.dumps(blobs)
+
