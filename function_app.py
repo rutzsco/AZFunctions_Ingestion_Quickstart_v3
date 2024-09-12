@@ -98,6 +98,7 @@ def pdf_orchestrator(context):
     entra_id = payload.get("entra_id")
     session_id = payload.get("session_id")
     cosmos_record_id = payload.get("cosmos_record_id")
+    embedding_model = payload.get("embedding_model")
     if cosmos_record_id is None:
         cosmos_record_id = context.instance_id
     if len(cosmos_record_id)==0:
@@ -123,6 +124,7 @@ def pdf_orchestrator(context):
         status_record['overlapping_chunks'] = overlapping_chunks
         status_record['chunk_size'] = chunk_size
         status_record['overlap'] = overlap
+        status_record['embedding_model'] = embedding_model
         status_record['id'] = cosmos_record_id
         status_record['entra_id'] = entra_id
         status_record['session_id'] = session_id
@@ -306,7 +308,7 @@ def pdf_orchestrator(context):
         generate_embeddings_tasks = []
         for file in chunked_pdf_files:
             # Create a task to generate embeddings for the extracted file and append it to the generate_embeddings_tasks list
-            generate_embeddings_tasks.append(context.call_activity("generate_extract_embeddings", json.dumps({'extract_container': extract_container, 'file': file})))
+            generate_embeddings_tasks.append(context.call_activity("generate_extract_embeddings", json.dumps({'extract_container': extract_container, 'file': file, 'embedding_model': embedding_model})))
         # Execute all the generate embeddings tasks and get the results
         processed_documents = yield context.task_all(generate_embeddings_tasks)
         
@@ -466,6 +468,7 @@ def audio_video_orchestrator(context):
     overlapping_chunks = payload.get("overlapping_chunks")
     chunk_size = payload.get("chunk_size")
     overlap = payload.get("overlap")
+    embedding_model = payload.get("embedding_model")
     entra_id = payload.get("entra_id")
     session_id = payload.get("session_id")
     cosmos_record_id = payload.get("cosmos_record_id")
@@ -495,6 +498,7 @@ def audio_video_orchestrator(context):
         status_record['overlap'] = overlap
         status_record['entra_id'] = entra_id
         status_record['session_id'] = session_id
+        status_record['embedding_model'] = embedding_model
         status_record['id'] = cosmos_record_id
         status_record['status'] = 1
         status_record['status_message'] = 'Starting Ingestion Process'
@@ -611,7 +615,7 @@ def audio_video_orchestrator(context):
         generate_embeddings_tasks = []
         for file in chunked_transcript_files:
             # Create a task to generate embeddings for the extracted file and append it to the generate_embeddings_tasks list
-            generate_embeddings_tasks.append(context.call_activity("generate_extract_embeddings", json.dumps({'extract_container': extract_container, 'file': file})))
+            generate_embeddings_tasks.append(context.call_activity("generate_extract_embeddings", json.dumps({'extract_container': extract_container, 'file': file, 'embedding_model': embedding_model})))
         # Execute all the generate embeddings tasks and get the results
         processed_documents = yield context.task_all(generate_embeddings_tasks)
         
@@ -745,6 +749,7 @@ def non_pdf_orchestrator(context):
     overlapping_chunks = payload.get("overlapping_chunks")
     chunk_size = payload.get("chunk_size")
     overlap = payload.get("overlap")
+    embedding_model = payload.get("embedding_model")
     entra_id = payload.get("entra_id")
     session_id = payload.get("session_id")
     cosmos_record_id = payload.get("cosmos_record_id")
@@ -773,6 +778,7 @@ def non_pdf_orchestrator(context):
         status_record['overlapping_chunks'] = overlapping_chunks
         status_record['chunk_size'] = chunk_size
         status_record['overlap'] = overlap
+        status_record['embedding_model'] = embedding_model
         status_record['id'] = cosmos_record_id
         status_record['entra_id'] = entra_id
         status_record['session_id'] = session_id
@@ -1825,6 +1831,7 @@ def generate_extract_embeddings(activitypayload: str):
     # Extract the extract container and file name from the payload
     extract_container = data.get("extract_container")
     file = data.get("file")
+    embedding_model = data.get('embedding_model')
 
     # Create a BlobServiceClient object which will be used to create a container client
     blob_service_client = BlobServiceClient.from_connection_string(os.environ['STORAGE_CONN_STR'])
@@ -1845,7 +1852,7 @@ def generate_extract_embeddings(activitypayload: str):
         content = extract_data['content']
 
         # Generate embeddings for the content
-        embeddings = generate_embeddings(content)
+        embeddings = generate_embeddings(content, embedding_model)
 
         # Update the extract data with the embeddings
         updated_record = extract_data
