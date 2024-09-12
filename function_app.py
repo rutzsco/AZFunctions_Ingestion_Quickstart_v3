@@ -68,6 +68,7 @@ def pdf_orchestrator(context):
     - overlapping_chunks (bool): A flag indicating whether to allow overlapping chunks. If false, page-wise chunks will be created.
     - chunk_size (int): The size of the chunks to be created.
     - overlap (int): The amount of overlap between chunks.  
+    - embedding_model (str): The name of the embedding model to use for vectorization.
   
     Returns:  
     - str: A JSON string containing the list of parent files, processed documents, indexed documents, and the index name.  
@@ -442,6 +443,7 @@ def audio_video_orchestrator(context):
     - overlapping_chunks (bool): A flag indicating whether to allow overlapping chunks. If false, page-wise chunks will be created.
     - chunk_size (int): The size of the chunks to be created.
     - overlap (int): The amount of overlap between chunks.  
+    - embedding_model (str): The name of the embedding model to use for vectorization.
   
     Returns:  
     - str: A JSON string containing the list of parent files, processed documents, indexed documents, and the index name.  

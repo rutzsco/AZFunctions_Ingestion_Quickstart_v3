@@ -133,6 +133,7 @@ POST to `https://<YOUR-AZURE-FUNCTION-NAME>.azurewebsites.net/api/get_active_ind
 | `overlapping_chunks`    | `bool`  | A flag indicating whether to create overlapping chunks. If false, page-wise chunks will be created with no overlap. |  
 | `chunk_size`            | `int`   | The size of the chunks to be created in tokens.                                               |  
 | `overlap`               | `int`   | The amount of overlap between chunks in tokens.                                               |  
+| `embedding_model`       | `str`   | The name of the Azure OpenAI embeddign model deployment                                          |  
 
 
 See `Trigger_PDF_Ingestion` in Postman collection.
@@ -149,7 +150,8 @@ POST to `https://<YOUR-AZURE-FUNCTION-NAME>.azurewebsites.net/api/orchestrators/
     "analyze_images": <TRUE_OR_FALSE>,
     "overlapping_chunks": <TRUE_OR_FALSE>,
     "chunk_size": <CHUNK_SIZE_IN_TOKENS>,
-    "overlap": <OVERLAP_SIZE_IN_TOKENS>
+    "overlap": <OVERLAP_SIZE_IN_TOKENS>,
+    "embedding_model": "<AOAI_EMBEDDING_MODEL_DEPLOYMENT_NAME>"
 }
 ```
 
