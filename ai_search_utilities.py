@@ -186,7 +186,7 @@ def delete_documents_vector(documents, index_name):
     return deleted_records
 
 
-def create_vector_index(stem_name, user_fields, omit_timestamp=False):
+def create_vector_index(stem_name, user_fields, omit_timestamp=False, dimensions=1536):
     # Get the search key, endpoint, and service name from environment variables
     search_key = os.environ['SEARCH_KEY']
     search_endpoint = os.environ['SEARCH_ENDPOINT']
@@ -222,7 +222,10 @@ def create_vector_index(stem_name, user_fields, omit_timestamp=False):
         elif field_type == 'bool':
             fields.append(SimpleField(name=field, type=SearchFieldDataType.Boolean, searchable=False, filterable=True))
 
-    vector_dimensions = os.environ.get('AOAI_EMBEDDINGS_DIMENSIONS')
+    if dimensions!= None:
+        vector_dimensions = dimensions
+    else:
+        vector_dimensions = os.environ.get('AOAI_EMBEDDINGS_DIMENSIONS')
 
     # Add a field for vector embeddings
     fields = fields + [ SearchField(name="embeddings", type=SearchFieldDataType.Collection(SearchFieldDataType.Single),
