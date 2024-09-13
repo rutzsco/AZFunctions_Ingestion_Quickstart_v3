@@ -42,6 +42,7 @@ Configure the environment variables in your Azure Function App settings as follo
 | `AOAI_KEY`                   | Key for Azure OpenAI service                              |
 | `AOAI_ENDPOINT`              | Endpoint for Azure OpenAI service                         |
 | `AOAI_EMBEDDINGS_MODEL`      | Model for generating embeddings with Azure OpenAI         |
+| `AOAI_EMBEDDINGS_DIMENSIONS`      | Number of vector dimensions associated with the Azure OpenAI embedding model (1536 for `text-embedding-ada-002`)         |
 | `AOAI_GPT_VISION_MODEL`      | Azure OpenAI GPT-4 model with vision support (GPT-4o or GPT-4-Turbo w/ Vision) |
 | `SEARCH_ENDPOINT`            | Endpoint for Azure AI Search service                      |
 | `SEARCH_KEY`                 | Key for Azure AI Search service                           |
@@ -88,6 +89,28 @@ func azure functionapp publish <YOUR-FUNCTION-APP-NAME>
 func azure functionapp publish <YOUR-FUNCTION-APP-NAME> --publish-settings-only
 ```
 
+## Deployment using CLI into existing Container Apps Environment without existing Function App
+
+1. Build & push the Docker image as indicated above to the Container Registry.
+
+1. Create a new Container Apps Environment workload profile to run your Function Apps in (the default Consumption profile is likely insufficient for this workload)
+
+```shell
+az containerapp env workload-profile add -g <resource-group-name> -n <container-apps-environment> --workload-profile-name func --workload-profile-type D4 --min-nodes 1 --max-nodes 40
+```
+
+1. Deploy your Function App to this new workload profile.
+
+```shell
+az functionapp create --name <function-app-name> --storage-account <storage-account-name> --environment <container-app-environment-name> --workload-profile-name func --resource-group <resource-group-name> --functions-version 4 --runtime python --image <container-registry-login-server>/ingestionfunction:1
+```
+
+1. Update the configuration values with your environment. You can create a local JSON file (`container-app.settings.json`, modeled on the `sample.container-app.settings` file)with all of these values and reference it in the following command. You will need to copy the various values for this file from the various Azure servies in the Portal.
+
+```shell
+az functionapp config appsettings set -g <resource-group-name> -n <function-app-name> --settings "@container-app.settings.json"
+```
+
 ## Utilization & Testing
 
 Shown below are some of the common calls the created functions for creating, and populating an Azure AI Search index using files uploaded to Azure Blob Storage.
@@ -132,6 +155,7 @@ POST to `https://<YOUR-AZURE-FUNCTION-NAME>.azurewebsites.net/api/get_active_ind
 | `overlapping_chunks`    | `bool`  | A flag indicating whether to create overlapping chunks. If false, page-wise chunks will be created with no overlap. |  
 | `chunk_size`            | `int`   | The size of the chunks to be created in tokens.                                               |  
 | `overlap`               | `int`   | The amount of overlap between chunks in tokens.                                               |  
+| `embedding_model`       | `str`   | The name of the Azure OpenAI embeddign model deployment                                          |  
 
 
 See `Trigger_PDF_Ingestion` in Postman collection.
@@ -148,7 +172,8 @@ POST to `https://<YOUR-AZURE-FUNCTION-NAME>.azurewebsites.net/api/orchestrators/
     "analyze_images": <TRUE_OR_FALSE>,
     "overlapping_chunks": <TRUE_OR_FALSE>,
     "chunk_size": <CHUNK_SIZE_IN_TOKENS>,
-    "overlap": <OVERLAP_SIZE_IN_TOKENS>
+    "overlap": <OVERLAP_SIZE_IN_TOKENS>,
+    "embedding_model": "<AOAI_EMBEDDING_MODEL_DEPLOYMENT_NAME>"
 }
 ```
 

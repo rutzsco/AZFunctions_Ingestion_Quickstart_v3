@@ -186,7 +186,7 @@ def delete_documents_vector(documents, index_name):
     return deleted_records
 
 
-def create_vector_index(stem_name, user_fields, omit_timestamp=False):
+def create_vector_index(stem_name, user_fields, omit_timestamp=False, dimensions=1536):
     # Get the search key, endpoint, and service name from environment variables
     search_key = os.environ['SEARCH_KEY']
     search_endpoint = os.environ['SEARCH_ENDPOINT']
@@ -207,7 +207,7 @@ def create_vector_index(stem_name, user_fields, omit_timestamp=False):
     client = SearchIndexClient(endpoint=search_endpoint, credential=credential)
 
     # Define the fields for the index
-    fields = [SimpleField(name="id", type=SearchFieldDataType.String, key=True)]
+    fields = [SimpleField(name="id", type=SearchFieldDataType.String, key=True), SimpleField(name="sourcefileref", type=SearchFieldDataType.String,searchable=False, filterable=True)]
     
     # Add user-defined fields to the index
     for field, field_type in user_fields.items():
@@ -222,9 +222,14 @@ def create_vector_index(stem_name, user_fields, omit_timestamp=False):
         elif field_type == 'bool':
             fields.append(SimpleField(name=field, type=SearchFieldDataType.Boolean, searchable=False, filterable=True))
 
+    if dimensions!= None:
+        vector_dimensions = dimensions
+    else:
+        vector_dimensions = os.environ.get('AOAI_EMBEDDINGS_DIMENSIONS')
+
     # Add a field for vector embeddings
     fields = fields + [ SearchField(name="embeddings", type=SearchFieldDataType.Collection(SearchFieldDataType.Single),
-                    searchable=True, vector_search_dimensions=1536, vector_search_profile_name="vector-config")]
+                    searchable=True, vector_search_dimensions=vector_dimensions, vector_search_profile_name="vector-config")]
     
     # Define vector search configurations
     vector_search = VectorSearch(

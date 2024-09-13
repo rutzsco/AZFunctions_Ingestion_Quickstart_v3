@@ -10,7 +10,7 @@ import re
 import logging
 
 
-def generate_embeddings(text):
+def generate_embeddings(text, model_name=None):
     """
     Generates embeddings for the given text using the specified embeddings model provided by OpenAI.
 
@@ -31,13 +31,17 @@ def generate_embeddings(text):
         azure_endpoint=os.environ['AOAI_ENDPOINT'], api_key=os.environ['AOAI_KEY'], api_version="2023-03-15-preview"
     )
 
+    embedding_model = os.environ['AOAI_EMBEDDINGS_MODEL']
+    if model_name is not None:
+        embedding_model = model_name
+
     # Initialize variable to track if the embeddings have been processed
     processed = False
     # Attempt to generate embeddings, retrying on failure
     while not processed:
         try:
             # Make API call to OpenAI to generate embeddings
-            response = client.embeddings.create(input=text, model=os.environ['AOAI_EMBEDDINGS_MODEL'])
+            response = client.embeddings.create(input=text, model=embedding_model)
             processed = True
         except Exception as e:  # Catch any exceptions and retry after a delay
             logging.error(e)
@@ -250,3 +254,63 @@ def analyze_image(b64_image_bytes):
     return out_str
         
 
+def generate_qna_pair_helper(content):
+    sys_msg = """You are a helpful AI assistant who reviews snippets of documents and generates a question and answer pair that can be UNIQUELY answered by the content within the provided document. 
+    The question-answer pair you generate should be specific to the underlying information in the provided documents, rather than a question about the document itself. 
+    To the extent possible, these questions should cover broader ideas.
+    Ideally, these questions should be answerable without an individual having the document directly in front of them.
+    For instance, ask 'What are the emerging trends in AI in 2024?' rather than 'What are the key AI trends listed in the document?' 
+
+    Your output format should be a JSON object with the following structure:
+
+    {
+        'question': '',
+        'answer':''
+    }
+    """
+    user_msg = f"""Generate a question/answer pair based on the following content.
+
+    ## CONTENT: {content}
+    """
+    
+    messages = [ 
+            { "role": "system", "content": sys_msg }, 
+            {"role": "user", "content": user_msg}
+    ]
+
+    api_base = os.environ['AOAI_ENDPOINT']
+    api_key = os.environ['AOAI_KEY']
+    deployment_name = os.environ['AOAI_GPT_VISION_MODEL']
+
+    base_url = f"{api_base}openai/deployments/{deployment_name}" 
+    headers = {   
+        "Content-Type": "application/json",   
+        "api-key": api_key 
+    } 
+    endpoint = f"{base_url}/chat/completions?api-version=2023-12-01-preview" 
+    data = { 
+        "messages": messages, 
+        "temperature": 0.0,
+        "top_p": 0.95,
+        "max_tokens": 500,
+        "response_format": {"type": "json_object"}
+    }   
+
+    # Make the API call   
+    processed = False
+    out_str = ''
+
+    while not processed:
+        try:
+            response = requests.post(endpoint, headers=headers, data=json.dumps(data)) 
+            resp_str = response.json()['choices'][0]['message']['content']
+            out_str = resp_str
+            processed = True
+        except Exception as e:
+            if 'exceeded token rate' in str(e).lower():
+                time.sleep(5)
+            else:
+                processed = True
+                
+    return json.loads(out_str)
+    

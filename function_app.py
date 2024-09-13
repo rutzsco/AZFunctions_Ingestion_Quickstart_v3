@@ -14,9 +14,11 @@ import fitz as pymupdf
 from PIL import Image
 import io
 import base64
+import random
+import pandas as pd
 
 from doc_intelligence_utilities import analyze_pdf, extract_results
-from aoai_utilities import generate_embeddings, classify_image, analyze_image, get_transcription
+from aoai_utilities import generate_embeddings, classify_image, analyze_image, get_transcription, generate_qna_pair_helper
 from ai_search_utilities import create_vector_index, get_current_index, insert_documents_vector, delete_documents_vector
 from chunking_utils import create_chunks, split_text
 import tempfile
@@ -66,6 +68,7 @@ def pdf_orchestrator(context):
     - overlapping_chunks (bool): A flag indicating whether to allow overlapping chunks. If false, page-wise chunks will be created.
     - chunk_size (int): The size of the chunks to be created.
     - overlap (int): The amount of overlap between chunks.  
+    - embedding_model (str): The name of the embedding model to use for vectorization.
   
     Returns:  
     - str: A JSON string containing the list of parent files, processed documents, indexed documents, and the index name.  
@@ -96,6 +99,7 @@ def pdf_orchestrator(context):
     entra_id = payload.get("entra_id")
     session_id = payload.get("session_id")
     cosmos_record_id = payload.get("cosmos_record_id")
+    embedding_model = payload.get("embedding_model")
     if cosmos_record_id is None:
         cosmos_record_id = context.instance_id
     if len(cosmos_record_id)==0:
@@ -121,6 +125,7 @@ def pdf_orchestrator(context):
         status_record['overlapping_chunks'] = overlapping_chunks
         status_record['chunk_size'] = chunk_size
         status_record['overlap'] = overlap
+        status_record['embedding_model'] = embedding_model
         status_record['id'] = cosmos_record_id
         status_record['entra_id'] = entra_id
         status_record['session_id'] = session_id
@@ -304,7 +309,7 @@ def pdf_orchestrator(context):
         generate_embeddings_tasks = []
         for file in chunked_pdf_files:
             # Create a task to generate embeddings for the extracted file and append it to the generate_embeddings_tasks list
-            generate_embeddings_tasks.append(context.call_activity("generate_extract_embeddings", json.dumps({'extract_container': extract_container, 'file': file})))
+            generate_embeddings_tasks.append(context.call_activity("generate_extract_embeddings", json.dumps({'extract_container': extract_container, 'file': file, 'embedding_model': embedding_model})))
         # Execute all the generate embeddings tasks and get the results
         processed_documents = yield context.task_all(generate_embeddings_tasks)
         
@@ -438,6 +443,7 @@ def audio_video_orchestrator(context):
     - overlapping_chunks (bool): A flag indicating whether to allow overlapping chunks. If false, page-wise chunks will be created.
     - chunk_size (int): The size of the chunks to be created.
     - overlap (int): The amount of overlap between chunks.  
+    - embedding_model (str): The name of the embedding model to use for vectorization.
   
     Returns:  
     - str: A JSON string containing the list of parent files, processed documents, indexed documents, and the index name.  
@@ -464,6 +470,7 @@ def audio_video_orchestrator(context):
     overlapping_chunks = payload.get("overlapping_chunks")
     chunk_size = payload.get("chunk_size")
     overlap = payload.get("overlap")
+    embedding_model = payload.get("embedding_model")
     entra_id = payload.get("entra_id")
     session_id = payload.get("session_id")
     cosmos_record_id = payload.get("cosmos_record_id")
@@ -493,6 +500,7 @@ def audio_video_orchestrator(context):
         status_record['overlap'] = overlap
         status_record['entra_id'] = entra_id
         status_record['session_id'] = session_id
+        status_record['embedding_model'] = embedding_model
         status_record['id'] = cosmos_record_id
         status_record['status'] = 1
         status_record['status_message'] = 'Starting Ingestion Process'
@@ -609,7 +617,7 @@ def audio_video_orchestrator(context):
         generate_embeddings_tasks = []
         for file in chunked_transcript_files:
             # Create a task to generate embeddings for the extracted file and append it to the generate_embeddings_tasks list
-            generate_embeddings_tasks.append(context.call_activity("generate_extract_embeddings", json.dumps({'extract_container': extract_container, 'file': file})))
+            generate_embeddings_tasks.append(context.call_activity("generate_extract_embeddings", json.dumps({'extract_container': extract_container, 'file': file, 'embedding_model': embedding_model})))
         # Execute all the generate embeddings tasks and get the results
         processed_documents = yield context.task_all(generate_embeddings_tasks)
         
@@ -743,6 +751,7 @@ def non_pdf_orchestrator(context):
     overlapping_chunks = payload.get("overlapping_chunks")
     chunk_size = payload.get("chunk_size")
     overlap = payload.get("overlap")
+    embedding_model = payload.get("embedding_model")
     entra_id = payload.get("entra_id")
     session_id = payload.get("session_id")
     cosmos_record_id = payload.get("cosmos_record_id")
@@ -771,6 +780,7 @@ def non_pdf_orchestrator(context):
         status_record['overlapping_chunks'] = overlapping_chunks
         status_record['chunk_size'] = chunk_size
         status_record['overlap'] = overlap
+        status_record['embedding_model'] = embedding_model
         status_record['id'] = cosmos_record_id
         status_record['entra_id'] = entra_id
         status_record['session_id'] = session_id
@@ -914,6 +924,178 @@ def delete_documents_orchestrator(context):
                        'deleted_transcript_files': deleted_transcripts_files,
                        'deleted_page_files': deleted_page_files, 
                        'deleted_source_files': deleted_source_files})
+
+@app.orchestration_trigger(context_name="context")
+def qna_pair_generation_orchestrator(context):
+
+    first_retry_interval_in_milliseconds = 5000
+    max_number_of_attempts = 2
+    retry_options = df.RetryOptions(first_retry_interval_in_milliseconds, max_number_of_attempts)
+    
+    # Get the input payload from the context
+    payload = context.get_input()
+    
+    # Extract the container name, index stem name, and prefix path from the payload
+    extract_container = payload.get("extract_container")
+    prefix_path = payload.get("prefix_path")
+    target_pair_count = int(payload.get("target_pair_count"))
+    if target_pair_count==0 or target_pair_count<-1:
+        raise Exception("Invalid target pair count. Specify -1 to generate QnA pairs for all chunks in the collection, or specify a non-zero positive number.")
+
+    # Retrieve source documents
+    source_files = yield context.call_activity("get_source_files", json.dumps({'source_container': extract_container,  'prefix': prefix_path, 'extensions': ['.json']}))
+
+    # Review all documents and find those with content > len(250) - shuffle and filter step
+    try:
+        review_file_tasks = []
+        for file in source_files:
+            review_file_tasks.append(context.call_activity_with_retry("review_files_for_qna", retry_options, json.dumps({'source_container': extract_container, 'filename': file})))
+        reviewed_files = yield context.task_all(review_file_tasks)
+        reviewed_files = [x for x in reviewed_files if x is not None]
+        context.set_custom_status('Reviewed and shuffled chunks')
+    except Exception as e:
+        raise e
+
+    # Iterate over all documents and generate QnA pairs
+    data_for_qna = yield context.call_activity_with_retry("retrieve_files_for_qna", retry_options, json.dumps({'source_container': extract_container, 'files': reviewed_files, 'pair_count': target_pair_count}))
+
+    try:
+        qna_pairs_tasks = []
+        for extract in data_for_qna:
+            qna_pairs_tasks.append(context.call_activity_with_retry("generate_qna_pair", retry_options, json.dumps(extract)))
+        qna_pairs = yield context.task_all(qna_pairs_tasks)
+        qna_pairs = [x for x in qna_pairs if x is not None]
+    except Exception as e:
+        pass
+
+    saved_qna_file = yield context.call_activity("save_qna_pairs", json.dumps({'records': qna_pairs, 'source_container': extract_container}))
+
+    return saved_qna_file
+
+@app.activity_trigger(input_name="activitypayload")
+def save_qna_pairs(activitypayload: str):
+
+    # Load the activity payload as a JSON string
+    data = json.loads(activitypayload)
+    records = data.get('records')
+    source_container = data.get('source_container')
+
+    qna_container = f'{source_container}-qna-pairs'
+
+    # Create a BlobServiceClient object which will be used to create a container client
+    blob_service_client = BlobServiceClient.from_connection_string(os.environ['STORAGE_CONN_STR'])
+                                                                   
+    try:
+        blob_service_client.create_container(qna_container)
+    except Exception as e:
+        pass
+
+    df = pd.DataFrame(records)
+    csv_buffer = BytesIO()
+    df.to_csv(csv_buffer, index=False)
+    csv_buffer.seek(0)  
+
+    now = datetime.now()
+    timestamp_str = now.strftime("%Y%m%d%H%M%S")
+    filename = f'qna_pairs_{timestamp_str}.csv'
+
+    # Create a BlobClient
+    blob_client = blob_service_client.get_blob_client(container=qna_container, blob=filename)
+
+    # Upload the CSV data to the blob
+    blob_client.upload_blob(csv_buffer, overwrite=True)
+
+    return filename
+
+
+@app.activity_trigger(input_name="activitypayload")
+def generate_qna_pair(activitypayload: str):
+
+    # Load the activity payload as a JSON string
+    data = json.loads(activitypayload)
+    
+    qna_pair = generate_qna_pair_helper(data['content'])
+
+    qna_pair['chunk_id'] = data['id']
+    qna_pair['sourcefile'] = data['sourcefile']
+    qna_pair['content'] = data['content']
+    if 'sourcepage' in data.keys():
+        qna_pair['sourcepage'] = data['sourcepage']
+
+    return qna_pair
+
+
+@app.activity_trigger(input_name="activitypayload")
+def retrieve_files_for_qna(activitypayload: str):
+
+    # Load the activity payload as a JSON string
+    data = json.loads(activitypayload)
+    
+    # Extract the source container, file extension, and prefix from the payload
+    source_container = data.get("source_container")
+    files = data.get("files")
+    pair_count = int(data.get('pair_count'))
+    
+    # Shuffle files
+    random.shuffle(files)
+
+    # Filter files if necessary
+    if pair_count > -1 and pair_count <= len(files):
+        files = files[:pair_count]
+
+    return_files = []
+
+    blob_service_client = BlobServiceClient.from_connection_string(os.environ['STORAGE_CONN_STR'])
+    container_client = blob_service_client.get_container_client(source_container)
+
+    for file in files:
+        blob_client = container_client.get_blob_client(file)
+        data = blob_client.download_blob().readall()
+        data = json.loads(data)
+        try:
+            del data['embeddings']
+        except Exception as e:
+            pass
+        return_files.append(data)
+
+    return return_files
+
+  
+
+@app.activity_trigger(input_name="activitypayload")
+def review_files_for_qna(activitypayload: str):
+
+    # Load the activity payload as a JSON string
+    data = json.loads(activitypayload)
+    
+    # Extract the source container, file extension, and prefix from the payload
+    source_container = data.get("source_container")
+    file = data.get("filename")
+    file_length_threshold = 250
+    
+    # Create a BlobServiceClient object which will be used to create a container client
+    blob_service_client = BlobServiceClient.from_connection_string(os.environ['STORAGE_CONN_STR'])
+                                                                   
+    # Get a ContainerClient object from the BlobServiceClient
+    container_client = blob_service_client.get_container_client(source_container)
+    
+    try:
+        # List all blobs in the container that start with the specified prefix
+        blob_client = container_client.get_blob_client(file)
+
+        data = blob_client.download_blob().readall()
+        data = json.loads(data)
+
+        if len(data['content']) > 250:
+            return file
+        
+        else:
+            return None
+
+    except Exception as e:
+        # If the container does not exist, return an empty list
+        return None
+
 
 # Activities
 @app.activity_trigger(input_name="activitypayload")
@@ -1463,6 +1645,9 @@ def chunk_extracts(activitypayload: str):
             # Load the extracts file as a JSON string
             extract_data = json.loads((extract_blob_client.download_blob().readall()).decode('utf-8'))
 
+            # Create a shortened file reference for the source file attached to the extract
+            extract_data['sourcefileref'] = hashlib.md5(extract_data['sourcefile'].encode()).hexdigest() + '.' + extract_data['sourcefile'].split('.')[-1]
+
             # Load the image analysis file as a JSON string
             if image_analysis_client.exists():
                 image_analysis_data = json.loads(image_analysis_client.download_blob().readall())
@@ -1493,6 +1678,9 @@ def chunk_extracts(activitypayload: str):
 
             # Load the extracts file as a JSON string
             extract_data = json.loads((extract_blob_client.download_blob().readall()).decode('utf-8'))
+
+            # Create a shortened file reference for the source file attached to the extract
+            extract_data['sourcefileref'] = hashlib.md5(extract_data['sourcefile'].encode()).hexdigest() + '.' + extract_data['sourcefile'].split('.')[-1]
 
             # Load the image analysis file as a JSON string
             if image_analysis_client.exists():
@@ -1593,6 +1781,7 @@ def chunk_audio_video_transcripts(activitypayload: str):
                 extract_data['content'] = chunk
                 extract_data['sourcefile'] = transcript_data['sourcefile']
                 extract_data['chunkcount'] = idx
+                extract_data['sourcefileref'] = hashlib.md5(extract_data['sourcefile'].encode()).hexdigest() + '.' + extract_data['sourcefile'].split('.')[-1]
 
                 filename = file.split('.')[0] + f'_chunk_{idx}.json'
 
@@ -1624,6 +1813,7 @@ def chunk_audio_video_transcripts(activitypayload: str):
                 extract_data['sourcefile'] = transcript_data['sourcefile']
                 extract_data['chunkcount'] = idx+1
                 extract_data['category'] = transcript_data['category']
+                extract_data['sourcefileref'] = hashlib.md5(extract_data['sourcefile'].encode()).hexdigest() + '.' + extract_data['sourcefile'].split('.')[-1]
 
                 filename = file.split('.')[0] + f'_chunk_{idx+1}.json'
 
@@ -1643,6 +1833,7 @@ def generate_extract_embeddings(activitypayload: str):
     # Extract the extract container and file name from the payload
     extract_container = data.get("extract_container")
     file = data.get("file")
+    embedding_model = data.get('embedding_model')
 
     # Create a BlobServiceClient object which will be used to create a container client
     blob_service_client = BlobServiceClient.from_connection_string(os.environ['STORAGE_CONN_STR'])
@@ -1663,7 +1854,7 @@ def generate_extract_embeddings(activitypayload: str):
         content = extract_data['content']
 
         # Generate embeddings for the content
-        embeddings = generate_embeddings(content)
+        embeddings = generate_embeddings(content, embedding_model)
 
         # Update the extract data with the embeddings
         updated_record = extract_data
@@ -1800,13 +1991,14 @@ def create_new_index(req: func.HttpRequest) -> func.HttpResponse:
     fields = data.get("fields")
     description = data.get("description")
     omit_timestamp = data.get("omit_timestamp")
+    dimensions = data.get("dimensions")
 
     # fields = {
     #     "content": "string", "pagenumber": "int", "sourcefile": "string", "sourcepage": "string", "category": "string"
     # }
 
     # Call the function to create a vector index with the specified stem name and fields
-    response = create_vector_index(stem_name, fields, omit_timestamp)
+    response = create_vector_index(stem_name, fields, omit_timestamp, dimensions)
 
     # Return the response
     return response
@@ -2025,3 +2217,24 @@ def convert_to_pdf_helper(input_bytes):
     
     # Return the PDF bytes
     return pdf_bytes
+
+@app.route(route="list_files_in_container", auth_level=func.AuthLevel.FUNCTION)
+def list_files_in_container(req: func.HttpRequest) -> func.HttpResponse:
+    # Get the JSON payload from the request
+    data = req.get_json()
+    # Extract the index stem name from the payload
+    container = data.get("container")
+
+    # Create a BlobServiceClient object which will be used to create a container client
+    blob_service_client = BlobServiceClient.from_connection_string(os.environ['STORAGE_CONN_STR'])
+
+    # Get a ContainerClient object for the extracts container
+    container_client = blob_service_client.get_container_client(container=container)
+
+    # Get a list of blobs in the container
+    blobs = []
+    for blob in container_client.list_blobs():
+        blobs.append(blob.name)
+
+    return json.dumps(blobs)
+

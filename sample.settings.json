@@ -10,6 +10,7 @@
       "AOAI_KEY": "",
       "AOAI_ENDPOINT": "",
       "AOAI_EMBEDDINGS_MODEL": "",
+      "AOAI_EMBEDDINGS_DIMENSIONS": 1536,
       "AOAI_GPT_VISION_MODEL": "",
       "AOAI_WHISPER_ENDPOINT": "",
       "AOAI_WHISPER_KEY": "",
