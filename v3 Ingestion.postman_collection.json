@@ -14,7 +14,7 @@
 				"header": [],
 				"body": {
 					"mode": "raw",
-					"raw": "{\r\n    \"source_container\": \"pdf-content\",\r\n    \"extract_container\": \"pdf-extract\",\r\n    \"prefix_path\": \"\",\r\n    \"index_name\": \"\",\r\n    \"automatically_delete\": false,\r\n    \"analyze_images\": true,\r\n    \"overlapping_chunks\": true,\r\n    \"chunk_size\": 600,\r\n    \"overlap\": 200,\r\n    \"embedding_model\": \"text-embedding-3-large\"\r\n}",
+					"raw": "{\r\n    \"source_container\": \"pdf-content\",\r\n    \"extract_container\": \"pdf-extract\",\r\n    \"prefix_path\": \"\",\r\n    \"index_name\": \"test-index-rk-20240906010651\",\r\n    \"automatically_delete\": false,\r\n    \"analyze_images\": true,\r\n    \"overlapping_chunks\": true,\r\n    \"chunk_size\": 600,\r\n    \"overlap\": 200,\r\n    \"embedding_model\": \"text-embedding-3-large\",\r\n    \"cosmos_logging\": true\r\n}",
 					"options": {
 						"raw": {
 							"language": "json"
@@ -22,9 +22,9 @@
 					}
 				},
 				"url": {
-					"raw": "{{LOCAL_FUNCTION_URI}}/api/orchestrators/pdf_orchestrator?code={{FUNCTION_KEY}}",
+					"raw": "{{FUNCTION_URI}}/api/orchestrators/pdf_orchestrator?code={{FUNCTION_KEY}}",
 					"host": [
-						"{{LOCAL_FUNCTION_URI}}"
+						"{{FUNCTION_URI}}"
 					],
 					"path": [
 						"api",
@@ -48,7 +48,7 @@
 				"header": [],
 				"body": {
 					"mode": "raw",
-					"raw": "{\r\n    \"source_container\": \"doc-content\",\r\n    \"extract_container\": \"doc-extract\",\r\n    \"prefix_path\": \"\",\r\n    \"index_name\": \"\",\r\n    \"automatically_delete\": false,\r\n    \"analyze_images\": true,\r\n    \"overlapping_chunks\": true,\r\n    \"chunk_size\": 600,\r\n    \"overlap\": 200,\r\n    \"embedding_model\": \"text-embedding-3-large\"\r\n}",
+					"raw": "{\r\n    \"source_container\": \"doc-content\",\r\n    \"extract_container\": \"doc-extract\",\r\n    \"prefix_path\": \"\",\r\n    \"index_name\": \"\",\r\n    \"automatically_delete\": false,\r\n    \"analyze_images\": true,\r\n    \"overlapping_chunks\": true,\r\n    \"chunk_size\": 600,\r\n    \"overlap\": 200,\r\n    \"embedding_model\": \"text-embedding-3-large\",\r\n    \"cosmos_logging\": true\r\n}",
 					"options": {
 						"raw": {
 							"language": "json"
@@ -115,7 +115,7 @@
 				"header": [],
 				"body": {
 					"mode": "raw",
-					"raw": "{\r\n    \"source_container\": \"av-content\",\r\n    \"extract_container\": \"av-extract\",\r\n    \"prefix_path\": \"\",\r\n    \"index_name\": \"\",\r\n    \"automatically_delete\": false,\r\n    \"analyze_images\": false,\r\n    \"overlapping_chunks\": true,\r\n    \"chunk_size\": 600,\r\n    \"overlap\": 200,\r\n    \"embedding_model\": \"text-embedding-3-large\"\r\n}",
+					"raw": "{\r\n    \"source_container\": \"av-content\",\r\n    \"extract_container\": \"av-extract\",\r\n    \"prefix_path\": \"\",\r\n    \"index_name\": \"\",\r\n    \"automatically_delete\": false,\r\n    \"analyze_images\": false,\r\n    \"overlapping_chunks\": true,\r\n    \"chunk_size\": 600,\r\n    \"overlap\": 200,\r\n    \"embedding_model\": \"text-embedding-3-large\",\r\n    \"cosmos_logging\": true\r\n}",
 					"options": {
 						"raw": {
 							"language": "json"
@@ -149,7 +149,7 @@
 				"header": [],
 				"body": {
 					"mode": "raw",
-					"raw": "{\r\n    \"source_container\": \"av-content\",\r\n    \"extract_container\": \"av-extract\",\r\n    \"prefix_path\": \"gpt_4o_demo_video_mp4.mp4\",\r\n    \"index_name\": \"\",\r\n    \"automatically_delete\": false,\r\n    \"analyze_images\": true,\r\n    \"overlapping_chunks\": true,\r\n    \"chunk_size\": 600,\r\n    \"overlap\": 200,\r\n    \"embedding_model\": \"text-embedding-3-large\"\r\n}",
+					"raw": "{\r\n    \"source_container\": \"av-content\",\r\n    \"extract_container\": \"av-extract\",\r\n    \"prefix_path\": \"gpt_4o_demo_video_mp4.mp4\",\r\n    \"index_name\": \"\",\r\n    \"automatically_delete\": false,\r\n    \"analyze_images\": true,\r\n    \"overlapping_chunks\": true,\r\n    \"chunk_size\": 600,\r\n    \"overlap\": 200,\r\n    \"embedding_model\": \"text-embedding-3-large\",\r\n    \"cosmos_logging\": true\r\n}",
 					"options": {
 						"raw": {
 							"language": "json"
