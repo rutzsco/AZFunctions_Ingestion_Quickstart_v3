@@ -101,7 +101,7 @@ def pdf_orchestrator(context):
     session_id = payload.get("session_id")
     cosmos_record_id = payload.get("cosmos_record_id")
     embedding_model = payload.get("embedding_model")
-    cosmos_logging = payload.get("cosmos_logging")
+    cosmos_logging = payload.get("cosmos_logging", True)
     
     if cosmos_record_id is None:
         cosmos_record_id = context.instance_id
@@ -130,6 +130,7 @@ def pdf_orchestrator(context):
         status_record['chunk_size'] = chunk_size
         status_record['overlap'] = overlap
         status_record['embedding_model'] = embedding_model
+        status_record['cosmos_logging'] = cosmos_logging    
         status_record['id'] = cosmos_record_id
         status_record['entra_id'] = entra_id
         status_record['session_id'] = session_id
@@ -498,7 +499,7 @@ def audio_video_orchestrator(context):
     entra_id = payload.get("entra_id")
     session_id = payload.get("session_id")
     cosmos_record_id = payload.get("cosmos_record_id")
-    cosmos_logging = payload.get("cosmos_logging")
+    cosmos_logging = payload.get("cosmos_logging", True)
     if cosmos_record_id is None:
         cosmos_record_id = context.instance_id
     if len(cosmos_record_id)==0:
@@ -527,6 +528,7 @@ def audio_video_orchestrator(context):
         status_record['entra_id'] = entra_id
         status_record['session_id'] = session_id
         status_record['embedding_model'] = embedding_model
+        status_record['cosmos_logging'] = cosmos_logging 
         status_record['id'] = cosmos_record_id
         status_record['status'] = 1
         status_record['status_message'] = 'Starting Ingestion Process'
@@ -795,7 +797,7 @@ def non_pdf_orchestrator(context):
     chunk_size = payload.get("chunk_size")
     overlap = payload.get("overlap")
     embedding_model = payload.get("embedding_model")
-    cosmos_logging = payload.get("cosmos_logging")
+    cosmos_logging = payload.get("cosmos_logging", True)
     entra_id = payload.get("entra_id")
     session_id = payload.get("session_id")
     cosmos_record_id = payload.get("cosmos_record_id")
