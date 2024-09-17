@@ -124,7 +124,8 @@ POST to `https://<YOUR-AZURE-FUNCTION-NAME>.azurewebsites.net/api/create_new_ind
 {
     "index_stem_name": "rag-index",
     "fields": {"content": "string", "pagenumber": "int", "sourcefile": "string", "sourcepage": "string", "category": "string"},
-    "description": "A detailed description of what types of documents, and their contents, will be added to the newly created index" 
+    "description": "A detailed description of what types of documents, and their contents, will be added to the newly created index",
+    "dimensions": 3072 # Number of dimensions associated with vector embedding model 
 }
 ```
 
@@ -155,7 +156,8 @@ POST to `https://<YOUR-AZURE-FUNCTION-NAME>.azurewebsites.net/api/get_active_ind
 | `overlapping_chunks`    | `bool`  | A flag indicating whether to create overlapping chunks. If false, page-wise chunks will be created with no overlap. |  
 | `chunk_size`            | `int`   | The size of the chunks to be created in tokens.                                               |  
 | `overlap`               | `int`   | The amount of overlap between chunks in tokens.                                               |  
-| `embedding_model`       | `str`   | The name of the Azure OpenAI embeddign model deployment                                          |  
+| `embedding_model`       | `str`   | The name of the Azure OpenAI embedding model deployment                                       | 
+| `cosmos_logging`        | `bool`  | A flag indicating whether or not to publish logs to Cosmos DB                                 |  
 
 
 See `Trigger_PDF_Ingestion` in Postman collection.
@@ -173,7 +175,8 @@ POST to `https://<YOUR-AZURE-FUNCTION-NAME>.azurewebsites.net/api/orchestrators/
     "overlapping_chunks": <TRUE_OR_FALSE>,
     "chunk_size": <CHUNK_SIZE_IN_TOKENS>,
     "overlap": <OVERLAP_SIZE_IN_TOKENS>,
-    "embedding_model": "<AOAI_EMBEDDING_MODEL_DEPLOYMENT_NAME>"
+    "embedding_model": "<AOAI_EMBEDDING_MODEL_DEPLOYMENT_NAME>",
+    "cosmos_logging": "<TRUE_OR_FALSE>",
 }
 ```
 

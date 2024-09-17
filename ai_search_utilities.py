@@ -281,3 +281,36 @@ def create_update_index_alias(alias_name, target_index):
             response = requests.put(uri, headers=headers, data=json.dumps(payload))
     except Exception as e:
         print(e)
+
+def get_ids_from_all_docs(target_index):
+    """
+    Creates or updates an alias for a given Azure Cognitive Search index.
+
+    Args:
+    search_service_name (str): The name of the Azure Cognitive Search service.
+    search_key (str): The admin key of the Azure Cognitive Search service.
+    alias_name (str): The name of the alias to create or update.
+    target_index (str): The name of the index that the alias should point to.
+    """
+
+    # Get the search key, endpoint, and service name from environment variables
+    search_key = os.environ['SEARCH_KEY']
+    search_endpoint = os.environ['SEARCH_ENDPOINT']
+    search_service_name = os.environ['SEARCH_SERVICE_NAME']
+
+    # Create a SearchIndexClient object
+    credential = AzureKeyCredential(search_key)
+    client = SearchClient(endpoint=search_endpoint, index_name=target_index, credential=credential)
+
+    results = client.search(search_text="*", select="id", include_total_count=True, top=1)
+
+    total_records = results.get_count()
+
+    captured_results = []
+
+    while True:
+        results =  client.search(search_text='*',  select="id", top=1000, skip=len(captured_results))
+        captured_results.extend([result['id'] for result in results])
+        if len(captured_results) >= total_records:
+            break
+    return captured_results

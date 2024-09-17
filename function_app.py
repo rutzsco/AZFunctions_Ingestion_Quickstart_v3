@@ -19,7 +19,7 @@ import pandas as pd
 
 from doc_intelligence_utilities import analyze_pdf, extract_results
 from aoai_utilities import generate_embeddings, classify_image, analyze_image, get_transcription, generate_qna_pair_helper
-from ai_search_utilities import create_vector_index, get_current_index, insert_documents_vector, delete_documents_vector
+from ai_search_utilities import create_vector_index, get_current_index, insert_documents_vector, delete_documents_vector, get_ids_from_all_docs
 from chunking_utils import create_chunks, split_text
 import tempfile
 import subprocess
@@ -69,6 +69,7 @@ def pdf_orchestrator(context):
     - chunk_size (int): The size of the chunks to be created.
     - overlap (int): The amount of overlap between chunks.  
     - embedding_model (str): The name of the embedding model to use for vectorization.
+    - cosmos_logging (bool): A flag indicating whether to enable logging to CosmosDB, default is true.
   
     Returns:  
     - str: A JSON string containing the list of parent files, processed documents, indexed documents, and the index name.  
@@ -100,18 +101,21 @@ def pdf_orchestrator(context):
     session_id = payload.get("session_id")
     cosmos_record_id = payload.get("cosmos_record_id")
     embedding_model = payload.get("embedding_model")
+    cosmos_logging = payload.get("cosmos_logging", True)
+    
     if cosmos_record_id is None:
         cosmos_record_id = context.instance_id
     if len(cosmos_record_id)==0:
         cosmos_record_id = context.instance_id
 
     # Create a status record in cosmos that can be updated throughout the course of this ingestion job
-    try:
-        payload = yield context.call_activity("create_status_record", json.dumps({'cosmos_id': cosmos_record_id}))
-        context.set_custom_status('Created Cosmos Record Successfully')
-    except Exception as e:
-        context.set_custom_status('Failed to Create Cosmos Record')
-        pass
+    if cosmos_logging:
+        try:
+            payload = yield context.call_activity("create_status_record", json.dumps({'cosmos_id': cosmos_record_id}))
+            context.set_custom_status('Created Cosmos Record Successfully')
+        except Exception as e:
+            context.set_custom_status('Failed to Create Cosmos Record')
+            pass
 
     # Create a status record that can be used to update CosmosDB
     try:
@@ -126,13 +130,15 @@ def pdf_orchestrator(context):
         status_record['chunk_size'] = chunk_size
         status_record['overlap'] = overlap
         status_record['embedding_model'] = embedding_model
+        status_record['cosmos_logging'] = cosmos_logging    
         status_record['id'] = cosmos_record_id
         status_record['entra_id'] = entra_id
         status_record['session_id'] = session_id
         status_record['status'] = 1
         status_record['status_message'] = 'Starting Ingestion Process'
         status_record['processing_progress'] = 0.1
-        yield context.call_activity("update_status_record", json.dumps(status_record))
+        if cosmos_logging:
+            yield context.call_activity("update_status_record", json.dumps(status_record))
     except Exception as e:
         pass
 
@@ -153,7 +159,8 @@ def pdf_orchestrator(context):
         status_record['status_message'] = 'Ingestion Failed During Container Check'
         status_record['error_message'] = str(e)
         status_record['processing_progress'] = 0.0
-        yield context.call_activity("update_status_record", json.dumps(status_record))
+        if cosmos_logging:
+            yield context.call_activity("update_status_record", json.dumps(status_record))
         logging.error(e)
         raise e
 
@@ -171,7 +178,8 @@ def pdf_orchestrator(context):
         status_record['status_message'] = 'Ingestion Failed During File Retrieval'
         status_record['error_message'] = str(e)
         status_record['processing_progress'] = 0.0
-        yield context.call_activity("update_status_record", json.dumps(status_record))
+        if cosmos_logging:
+            yield context.call_activity("update_status_record", json.dumps(status_record))
         logging.error(e)
         raise e
     
@@ -180,7 +188,8 @@ def pdf_orchestrator(context):
         status_record['status'] = 0
         status_record['status_message'] = 'No PDF Files Found'
         status_record['processing_progress'] = 0.0
-        yield context.call_activity("update_status_record", json.dumps(status_record))
+        if cosmos_logging:
+            yield context.call_activity("update_status_record", json.dumps(status_record))
         raise Exception(f'No PDF files found in the source container matching prefix: {prefix_path}.')
 
 
@@ -210,7 +219,8 @@ def pdf_orchestrator(context):
             status_record['status_message'] = 'Ingestion Failed During PDF Splitting: Non-PDF File Type Detected'
         status_record['error_message'] = str(e)
         status_record['processing_progress'] = 0.0
-        yield context.call_activity("update_status_record", json.dumps(status_record))
+        if cosmos_logging:
+            yield context.call_activity("update_status_record", json.dumps(status_record))
         logging.error(e)
         raise e
 
@@ -218,7 +228,8 @@ def pdf_orchestrator(context):
     status_record['status_message'] = 'Splitting Completed'
     status_record['processing_progress'] = 0.2
     status_record['status'] = 1
-    yield context.call_activity("update_status_record", json.dumps(status_record))
+    if cosmos_logging:
+        yield context.call_activity("update_status_record", json.dumps(status_record))
 
     # For each PDF page, process it with Document Intelligence and save the results to the document intelligence results (and formatted results) container
     try:
@@ -237,7 +248,8 @@ def pdf_orchestrator(context):
         status_record['status_message'] = 'Ingestion Failed During Document Intelligence Extraction'
         status_record['error_message'] = str(e)
         status_record['processing_progress'] = 0.0
-        yield context.call_activity("update_status_record", json.dumps(status_record))
+        if cosmos_logging:
+            yield context.call_activity("update_status_record", json.dumps(status_record))
         logging.error(e)
         raise e
 
@@ -245,7 +257,8 @@ def pdf_orchestrator(context):
     status_record['status_message'] = 'Document Extraction Completion'
     status_record['processing_progress'] = 0.6
     status_record['status'] = 1
-    yield context.call_activity("update_status_record", json.dumps(status_record))
+    if cosmos_logging:
+        yield context.call_activity("update_status_record", json.dumps(status_record))
 
     #Analyze all pages and determine if there is additional visual content that should be described
     try:
@@ -266,7 +279,8 @@ def pdf_orchestrator(context):
         status_record['status_message'] = 'Ingestion Failed During Image Analysis'
         status_record['error_message'] = str(e)
         status_record['processing_progress'] = 0.0
-        yield context.call_activity("update_status_record", json.dumps(status_record))
+        if cosmos_logging:
+            yield context.call_activity("update_status_record", json.dumps(status_record))
         logging.error(e)
         raise e
     
@@ -274,7 +288,8 @@ def pdf_orchestrator(context):
     status_record['status_message'] = 'Image Analysis Completed'
     status_record['processing_progress'] = 0.7
     status_record['status'] = 1
-    yield context.call_activity("update_status_record", json.dumps(status_record))
+    if cosmos_logging:
+        yield context.call_activity("update_status_record", json.dumps(status_record))
 
     
     # Assemble chunks based on user specification
@@ -294,7 +309,8 @@ def pdf_orchestrator(context):
         status_record['status_message'] = 'Ingestion Failed During Chunking'
         status_record['error_message'] = str(e)
         status_record['processing_progress'] = 0.0
-        yield context.call_activity("update_status_record", json.dumps(status_record))
+        if cosmos_logging:
+            yield context.call_activity("update_status_record", json.dumps(status_record))
         logging.error(e)
         raise e
     
@@ -302,7 +318,8 @@ def pdf_orchestrator(context):
     status_record['status_message'] = 'Extract Chunking Completed'
     status_record['processing_progress'] = 0.7
     status_record['status'] = 1
-    yield context.call_activity("update_status_record", json.dumps(status_record))
+    if cosmos_logging:
+        yield context.call_activity("update_status_record", json.dumps(status_record))
 
     # For each extracted PDF file, generate embeddings and save the results
     try:
@@ -319,7 +336,8 @@ def pdf_orchestrator(context):
         status_record['status_message'] = 'Ingestion Failed During Vectorization'
         status_record['error_message'] = str(e)
         status_record['processing_progress'] = 0.0
-        yield context.call_activity("update_status_record", json.dumps(status_record))
+        if cosmos_logging:
+            yield context.call_activity("update_status_record", json.dumps(status_record))
         logging.error(e)
         raise e
 
@@ -327,7 +345,8 @@ def pdf_orchestrator(context):
     status_record['status_message'] = 'Vectorization Completed'
     status_record['processing_progress'] = 0.8
     status_record['status'] = 1
-    yield context.call_activity("update_status_record", json.dumps(status_record))
+    if cosmos_logging:
+        yield context.call_activity("update_status_record", json.dumps(status_record))
 
     ###################### DATA INGESTION END ######################
 
@@ -355,7 +374,8 @@ def pdf_orchestrator(context):
         status_record['status_message'] = 'Ingestion Failed During Index Retrieval'
         status_record['error_message'] = str(e)
         status_record['processing_progress'] = 0.0
-        yield context.call_activity("update_status_record", json.dumps(status_record))
+        if cosmos_logging:
+            yield context.call_activity("update_status_record", json.dumps(status_record))
         logging.error(e)
         raise e
 
@@ -373,7 +393,8 @@ def pdf_orchestrator(context):
         status_record['status_message'] = 'Ingestion Failed During Indexing'
         status_record['error_message'] = str(e)
         status_record['processing_progress'] = 0.0
-        yield context.call_activity("update_status_record", json.dumps(status_record))
+        if cosmos_logging:
+            yield context.call_activity("update_status_record", json.dumps(status_record))
         logging.error(e)
         raise e
     
@@ -381,7 +402,8 @@ def pdf_orchestrator(context):
     status_record['status_message'] = 'Ingestion Completed'
     status_record['processing_progress'] = 1
     status_record['status'] = 10
-    yield context.call_activity("update_status_record", json.dumps(status_record))
+    if cosmos_logging:
+        yield context.call_activity("update_status_record", json.dumps(status_record))
 
     
     ###################### DATA INDEXING END ######################
@@ -399,14 +421,16 @@ def pdf_orchestrator(context):
             context.set_custom_status('Ingestion & Clean Up Completed')
             status_record['cleanup_status_message'] = 'Intermediate Data Clean Up Completed'
             status_record['cleanup_status'] = 10
-            yield context.call_activity("update_status_record", json.dumps(status_record))
+            if cosmos_logging:
+                yield context.call_activity("update_status_record", json.dumps(status_record))
         
         except Exception as e:
             context.set_custom_status('Data Clean Up Failed')
             status_record['cleanup_status'] = -1
             status_record['cleanup_status_message'] = 'Intermediate Data Clean Up Failed'
             status_record['cleanup_error_message'] = str(e)
-            yield context.call_activity("update_status_record", json.dumps(status_record))
+            if cosmos_logging:
+                yield context.call_activity("update_status_record", json.dumps(status_record))
             logging.error(e)
             raise e
 
@@ -417,7 +441,8 @@ def pdf_orchestrator(context):
     status_record['processed_documents'] = processed_documents
     status_record['indexed_documents'] = insert_results
     status_record['index_name'] = latest_index
-    yield context.call_activity("update_status_record", json.dumps(status_record))
+    if cosmos_logging:
+        yield context.call_activity("update_status_record", json.dumps(status_record))
 
     # Return the list of parent files and processed documents as a JSON string
     return json.dumps({'parent_files': parent_files, 'processed_documents': processed_documents, 'indexed_documents': insert_results, 'index_name': latest_index})
@@ -474,6 +499,7 @@ def audio_video_orchestrator(context):
     entra_id = payload.get("entra_id")
     session_id = payload.get("session_id")
     cosmos_record_id = payload.get("cosmos_record_id")
+    cosmos_logging = payload.get("cosmos_logging", True)
     if cosmos_record_id is None:
         cosmos_record_id = context.instance_id
     if len(cosmos_record_id)==0:
@@ -481,8 +507,9 @@ def audio_video_orchestrator(context):
 
     # Create a status record in cosmos that can be updated throughout the course of this ingestion job
     try:
-        payload = yield context.call_activity("create_status_record", json.dumps({'cosmos_id': cosmos_record_id}))
-        context.set_custom_status('Created Cosmos Record Successfully')
+        if cosmos_logging:
+            payload = yield context.call_activity("create_status_record", json.dumps({'cosmos_id': cosmos_record_id}))
+            context.set_custom_status('Created Cosmos Record Successfully')
     except Exception as e:
         context.set_custom_status('Failed to Create Cosmos Record')
         pass
@@ -501,11 +528,13 @@ def audio_video_orchestrator(context):
         status_record['entra_id'] = entra_id
         status_record['session_id'] = session_id
         status_record['embedding_model'] = embedding_model
+        status_record['cosmos_logging'] = cosmos_logging 
         status_record['id'] = cosmos_record_id
         status_record['status'] = 1
         status_record['status_message'] = 'Starting Ingestion Process'
         status_record['processing_progress'] = 0.1
-        yield context.call_activity("update_status_record", json.dumps(status_record))
+        if cosmos_logging:
+            yield context.call_activity("update_status_record", json.dumps(status_record))
     except Exception as e:
         pass
 
@@ -523,7 +552,8 @@ def audio_video_orchestrator(context):
         status_record['status_message'] = 'Ingestion Failed During Container Check'
         status_record['error_message'] = str(e)
         status_record['processing_progress'] = 0.0
-        yield context.call_activity("update_status_record", json.dumps(status_record))
+        if cosmos_logging:
+            yield context.call_activity("update_status_record", json.dumps(status_record))
         logging.error(e)
         raise e
 
@@ -541,7 +571,8 @@ def audio_video_orchestrator(context):
         status_record['status_message'] = 'Ingestion Failed During File Retrieval'
         status_record['error_message'] = str(e)
         status_record['processing_progress'] = 0.0
-        yield context.call_activity("update_status_record", json.dumps(status_record))
+        if cosmos_logging:
+            yield context.call_activity("update_status_record", json.dumps(status_record))
         logging.error(e)
         raise e
     
@@ -549,14 +580,16 @@ def audio_video_orchestrator(context):
     status_record['status_message'] = 'Retrieved Source Files'
     status_record['processing_progress'] = 0.1
     status_record['status'] = 1
-    yield context.call_activity("update_status_record", json.dumps(status_record))
+    if cosmos_logging:
+        yield context.call_activity("update_status_record", json.dumps(status_record))
 
     if len(files) == 0:
         context.set_custom_status('No Audio/Video Files Found')
         status_record['status'] = 0
         status_record['status_message'] = 'No Audio/Video Files Found'
         status_record['processing_progress'] = 0.0
-        yield context.call_activity("update_status_record", json.dumps(status_record))
+        if cosmos_logging:
+            yield context.call_activity("update_status_record", json.dumps(status_record))
         raise Exception(f'No audio/video files found in the source container matching prefix: {prefix_path}.')
 
 
@@ -577,7 +610,8 @@ def audio_video_orchestrator(context):
         status_record['status_message'] = 'Ingestion Failed During Transcription'
         status_record['error_message'] = str(e)
         status_record['processing_progress'] = 0.0
-        yield context.call_activity("update_status_record", json.dumps(status_record))
+        if cosmos_logging:
+            yield context.call_activity("update_status_record", json.dumps(status_record))
         logging.error(e)
         raise e
 
@@ -585,7 +619,8 @@ def audio_video_orchestrator(context):
     status_record['status_message'] = 'Audio Transcription Completed'
     status_record['processing_progress'] = 0.6
     status_record['status'] = 1
-    yield context.call_activity("update_status_record", json.dumps(status_record))
+    if cosmos_logging:
+        yield context.call_activity("update_status_record", json.dumps(status_record))
 
     #### THEN CHUNK TRANSCRIPTS
     try:
@@ -600,7 +635,8 @@ def audio_video_orchestrator(context):
         status_record['status_message'] = 'Ingestion Failed During Chunking'
         status_record['error_message'] = str(e)
         status_record['processing_progress'] = 0.0
-        yield context.call_activity("update_status_record", json.dumps(status_record))
+        if cosmos_logging:
+            yield context.call_activity("update_status_record", json.dumps(status_record))
         logging.error(e)
         raise e
     
@@ -608,7 +644,8 @@ def audio_video_orchestrator(context):
     status_record['status_message'] = 'Extract Chunking Completed'
     status_record['processing_progress'] = 0.7
     status_record['status'] = 1
-    yield context.call_activity("update_status_record", json.dumps(status_record))
+    if cosmos_logging:
+        yield context.call_activity("update_status_record", json.dumps(status_record))
 
     #### THEN GENERATE EMBEDDINGS
 
@@ -627,7 +664,8 @@ def audio_video_orchestrator(context):
         status_record['status_message'] = 'Ingestion Failed During Vectorization'
         status_record['error_message'] = str(e)
         status_record['processing_progress'] = 0.0
-        yield context.call_activity("update_status_record", json.dumps(status_record))
+        if cosmos_logging:
+            yield context.call_activity("update_status_record", json.dumps(status_record))
         logging.error(e)
         raise e
 
@@ -635,7 +673,8 @@ def audio_video_orchestrator(context):
     status_record['status_message'] = 'Vectorization Completed'
     status_record['processing_progress'] = 0.8
     status_record['status'] = 1
-    yield context.call_activity("update_status_record", json.dumps(status_record))
+    if cosmos_logging:
+        yield context.call_activity("update_status_record", json.dumps(status_record))
 
     ###################### DATA INGESTION END ######################
 
@@ -663,7 +702,8 @@ def audio_video_orchestrator(context):
         status_record['status_message'] = 'Ingestion Failed During Index Retrieval'
         status_record['error_message'] = str(e)
         status_record['processing_progress'] = 0.0
-        yield context.call_activity("update_status_record", json.dumps(status_record))
+        if cosmos_logging:
+            yield context.call_activity("update_status_record", json.dumps(status_record))
         logging.error(e)
         raise e
 
@@ -681,7 +721,8 @@ def audio_video_orchestrator(context):
         status_record['status_message'] = 'Ingestion Failed During Indexing'
         status_record['error_message'] = str(e)
         status_record['processing_progress'] = 0.0
-        yield context.call_activity("update_status_record", json.dumps(status_record))
+        if cosmos_logging:
+            yield context.call_activity("update_status_record", json.dumps(status_record))
         logging.error(e)
         raise e
     
@@ -689,7 +730,8 @@ def audio_video_orchestrator(context):
     status_record['status_message'] = 'Ingestion Completed'
     status_record['processing_progress'] = 1
     status_record['status'] = 10
-    yield context.call_activity("update_status_record", json.dumps(status_record))
+    if cosmos_logging:
+        yield context.call_activity("update_status_record", json.dumps(status_record))
 
     ###################### DATA INDEXING END ######################
 
@@ -705,14 +747,16 @@ def audio_video_orchestrator(context):
             context.set_custom_status('Ingestion & Clean Up Completed')
             status_record['cleanup_status_message'] = 'Intermediate Data Clean Up Completed'
             status_record['cleanup_status'] = 10
-            yield context.call_activity("update_status_record", json.dumps(status_record))
+            if cosmos_logging:
+                yield context.call_activity("update_status_record", json.dumps(status_record))
         
         except Exception as e:
             context.set_custom_status('Data Clean Up Failed')
             status_record['cleanup_status'] = -1
             status_record['cleanup_status_message'] = 'Intermediate Data Clean Up Failed'
             status_record['cleanup_error_message'] = str(e)
-            yield context.call_activity("update_status_record", json.dumps(status_record))
+            if cosmos_logging:
+                yield context.call_activity("update_status_record", json.dumps(status_record))
             logging.error(e)
             raise e
 
@@ -723,7 +767,8 @@ def audio_video_orchestrator(context):
     status_record['processed_documents'] = processed_documents
     status_record['indexed_documents'] = insert_results
     status_record['index_name'] = latest_index
-    yield context.call_activity("update_status_record", json.dumps(status_record))
+    if cosmos_logging:
+        yield context.call_activity("update_status_record", json.dumps(status_record))
 
     # Return the list of parent files and processed documents as a JSON string
     return json.dumps({'parent_files': parent_files, 'processed_documents': processed_documents, 'indexed_documents': insert_results, 'index_name': latest_index})
@@ -752,6 +797,7 @@ def non_pdf_orchestrator(context):
     chunk_size = payload.get("chunk_size")
     overlap = payload.get("overlap")
     embedding_model = payload.get("embedding_model")
+    cosmos_logging = payload.get("cosmos_logging", True)
     entra_id = payload.get("entra_id")
     session_id = payload.get("session_id")
     cosmos_record_id = payload.get("cosmos_record_id")
@@ -762,8 +808,9 @@ def non_pdf_orchestrator(context):
 
     # Create a status record in cosmos that can be updated throughout the course of this ingestion job
     try:
-        payload = yield context.call_activity("create_status_record", json.dumps({'cosmos_id': cosmos_record_id}))
-        context.set_custom_status('Created Cosmos Record Successfully')
+        if cosmos_logging:
+            payload = yield context.call_activity("create_status_record", json.dumps({'cosmos_id': cosmos_record_id}))
+            context.set_custom_status('Created Cosmos Record Successfully')
     except Exception as e:
         context.set_custom_status('Failed to Create Cosmos Record')
         pass
@@ -787,7 +834,8 @@ def non_pdf_orchestrator(context):
         status_record['status'] = 1
         status_record['status_message'] = 'Starting Ingestion Process'
         status_record['processing_progress'] = 0.1
-        yield context.call_activity("update_status_record", json.dumps(status_record))
+        if cosmos_logging:
+            yield context.call_activity("update_status_record", json.dumps(status_record))
     except Exception as e:
         pass
 
@@ -801,7 +849,8 @@ def non_pdf_orchestrator(context):
         status_record['status_message'] = 'Ingestion Failed During File Retrieval'
         status_record['error_message'] = str(e)
         status_record['processing_progress'] = 0.0
-        yield context.call_activity("update_status_record", json.dumps(status_record))
+        if cosmos_logging:
+            yield context.call_activity("update_status_record", json.dumps(status_record))
         logging.error(e)
         raise e
 
@@ -818,7 +867,8 @@ def non_pdf_orchestrator(context):
         status_record['status_message'] = 'Ingestion Failed During PDF Conversion'
         status_record['error_message'] = str(e)
         status_record['processing_progress'] = 0.0
-        yield context.call_activity("update_status_record", json.dumps(status_record))
+        if cosmos_logging:
+            yield context.call_activity("update_status_record", json.dumps(status_record))
         logging.error(e)
         raise e
     
@@ -826,7 +876,8 @@ def non_pdf_orchestrator(context):
     status_record['status_message'] = 'Converted Document to PDF'
     status_record['processing_progress'] = 0.1
     status_record['status'] = 1
-    yield context.call_activity("update_status_record", json.dumps(status_record))
+    if cosmos_logging:
+        yield context.call_activity("update_status_record", json.dumps(status_record))
 
     # Call the PDF orchestrator to process the PDF file
     try:
@@ -971,6 +1022,48 @@ def qna_pair_generation_orchestrator(context):
     saved_qna_file = yield context.call_activity("save_qna_pairs", json.dumps({'records': qna_pairs, 'source_container': extract_container}))
 
     return saved_qna_file
+
+@app.orchestration_trigger(context_name="context")
+def sync_index_orchestrator(context):
+
+    first_retry_interval_in_milliseconds = 5000
+    max_number_of_attempts = 2
+    retry_options = df.RetryOptions(first_retry_interval_in_milliseconds, max_number_of_attempts)
+    
+    # Get the input payload from the context
+    payload = context.get_input()
+    
+    # Extract the container name, index stem name, and prefix path from the payload
+    extract_container = payload.get("extract_container")
+    index_name = payload.get("index_name")
+
+    # Get index details
+    index_detail, fields = get_current_index(index_name)
+    
+    # Get source files
+    try:
+        files = yield context.call_activity_with_retry("get_source_files", retry_options, json.dumps({'source_container': extract_container, 'extensions': ['.json']}))
+    except Exception as e:
+        raise e
+    files = [x for x in files if x is not None]
+    
+    # Iterate all chunks and add to Index (return unique ID)
+    upsert_tasks = []
+    for file in files:
+        try:
+            upsert_tasks.append(context.call_activity_with_retry("upsert_record", retry_options, json.dumps({'file': file, 'index_name': index_name, 'fields': fields, 'extract_container': extract_container})))
+        except Exception as e:
+            pass
+    upsert_ids = yield context.task_all(upsert_tasks) # Update to return more info (sourcefile, sourcepage)
+    
+
+    # Get IDs from the index
+    ai_index_ids = yield context.call_activity("get_ai_index_record_ids", json.dumps({'index_name': index_name}))
+
+    # Sync documents in the search index
+    removed_documents = yield context.call_activity("sync_ai_index", json.dumps({'index_name': index_name, 'index_ids': ai_index_ids, 'expected_ids': upsert_ids}))
+
+    return ({'removed_document_ids': removed_documents, 'index_content': upsert_ids})
 
 @app.activity_trigger(input_name="activitypayload")
 def save_qna_pairs(activitypayload: str):
@@ -1903,6 +1996,42 @@ def insert_record(activitypayload: str):
     return file
 
 @app.activity_trigger(input_name="activitypayload")
+def upsert_record(activitypayload: str):
+
+    # Load the activity payload as a JSON string
+    data = json.loads(activitypayload)
+
+    # Extract the file name, index, fields, and extracts container from the payload
+    file = data.get("file")
+    index = data.get("index_name")
+    fields = data.get("fields")
+    extracts_container = data.get("extract_container")
+
+    # Create a BlobServiceClient object which will be used to create a container client
+    blob_service_client = BlobServiceClient.from_connection_string(os.environ['STORAGE_CONN_STR'])
+
+    # Get a ContainerClient object for the extracts container
+    container_client = blob_service_client.get_container_client(container=extracts_container)
+
+    # Get a BlobClient object for the file
+    blob_client = container_client.get_blob_client(blob=file)
+
+    # Download the file as a string
+    file_data = (blob_client.download_blob().readall()).decode('utf-8')
+
+    # Load the file data as a JSON string
+    file_data =  json.loads(file_data)
+
+    # Filter the file data to only include the specified fields
+    file_data = {key: value for key, value in file_data.items() if key in fields}
+
+    # Insert the file data into the specified index
+    insert_documents_vector([file_data], index)
+
+    # Return the file name
+    return {'id': file_data['id'], 'sourcefile': file_data['sourcefile'], 'sourcepage': file_data['sourcepage']}
+
+@app.activity_trigger(input_name="activitypayload")
 def delete_records(activitypayload: str):
 
     # Load the activity payload as a JSON string
@@ -1938,6 +2067,45 @@ def delete_records(activitypayload: str):
 
     # Return the file name
     return deleted_records
+
+@app.activity_trigger(input_name="activitypayload")
+def get_ai_index_record_ids(activitypayload: str):
+
+    # Load the activity payload as a JSON string
+    data = json.loads(activitypayload)
+
+    # Extract the file name, index, fields, and extracts container from the payload
+    index = data.get("index_name")
+
+    record_ids = get_ids_from_all_docs(index)
+
+    # Return the file name
+    return record_ids
+
+@app.activity_trigger(input_name="activitypayload")
+def sync_ai_index(activitypayload: str):
+
+    # Load the activity payload as a JSON string
+    data = json.loads(activitypayload)
+
+    # Extract the file name, index, fields, and extracts container from the payload
+    index = data.get("index_name")
+    index_ids = data.get("index_ids")
+    expected_ids = data.get("expected_ids")
+
+    expected_ids = [x['id'] for x in expected_ids]
+
+    ids_to_remove = [x for x in index_ids if x not in expected_ids]
+    docs_to_remove = [{'id': x} for x in ids_to_remove]
+
+    deleted_records = delete_documents_vector(docs_to_remove, index)
+
+    return_records = []
+    for record in deleted_records:
+        return_records.append({'id': record['id'], 'sourcefile': record['sourcefile'], 'sourcepage': record['sourcepage']})
+
+    return return_records
+
 
 @app.activity_trigger(input_name="activitypayload")
 def convert_pdf_activity(activitypayload: str):
@@ -2015,7 +2183,6 @@ def get_active_index(req: func.HttpRequest) -> func.HttpResponse:
     latest_index, fields = get_current_index(stem_name)
 
     return latest_index
-
 
 @app.activity_trigger(input_name="activitypayload")
 def update_status_record(activitypayload: str):
