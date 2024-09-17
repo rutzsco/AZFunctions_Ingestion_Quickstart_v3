@@ -19,7 +19,7 @@ import pandas as pd
 
 from doc_intelligence_utilities import analyze_pdf, extract_results
 from aoai_utilities import generate_embeddings, classify_image, analyze_image, get_transcription, generate_qna_pair_helper
-from ai_search_utilities import create_vector_index, get_current_index, insert_documents_vector, delete_documents_vector
+from ai_search_utilities import create_vector_index, get_current_index, insert_documents_vector, delete_documents_vector, get_ids_from_all_docs
 from chunking_utils import create_chunks, split_text
 import tempfile
 import subprocess
@@ -1023,6 +1023,48 @@ def qna_pair_generation_orchestrator(context):
 
     return saved_qna_file
 
+@app.orchestration_trigger(context_name="context")
+def sync_index_orchestrator(context):
+
+    first_retry_interval_in_milliseconds = 5000
+    max_number_of_attempts = 2
+    retry_options = df.RetryOptions(first_retry_interval_in_milliseconds, max_number_of_attempts)
+    
+    # Get the input payload from the context
+    payload = context.get_input()
+    
+    # Extract the container name, index stem name, and prefix path from the payload
+    extract_container = payload.get("extract_container")
+    index_name = payload.get("index_name")
+
+    # Get index details
+    index_detail, fields = get_current_index(index_name)
+    
+    # Get source files
+    try:
+        files = yield context.call_activity_with_retry("get_source_files", retry_options, json.dumps({'source_container': extract_container, 'extensions': ['.json']}))
+    except Exception as e:
+        raise e
+    files = [x for x in files if x is not None]
+    
+    # Iterate all chunks and add to Index (return unique ID)
+    upsert_tasks = []
+    for file in files:
+        try:
+            upsert_tasks.append(context.call_activity_with_retry("upsert_record", retry_options, json.dumps({'file': file, 'index_name': index_name, 'fields': fields, 'extract_container': extract_container})))
+        except Exception as e:
+            pass
+    upsert_ids = yield context.task_all(upsert_tasks) # Update to return more info (sourcefile, sourcepage)
+    
+
+    # Get IDs from the index
+    ai_index_ids = yield context.call_activity("get_ai_index_record_ids", json.dumps({'index_name': index_name}))
+
+    # Sync documents in the search index
+    removed_documents = yield context.call_activity("sync_ai_index", json.dumps({'index_name': index_name, 'index_ids': ai_index_ids, 'expected_ids': upsert_ids}))
+
+    return ({'removed_document_ids': removed_documents, 'index_content': upsert_ids})
+
 @app.activity_trigger(input_name="activitypayload")
 def save_qna_pairs(activitypayload: str):
 
@@ -1954,6 +1996,42 @@ def insert_record(activitypayload: str):
     return file
 
 @app.activity_trigger(input_name="activitypayload")
+def upsert_record(activitypayload: str):
+
+    # Load the activity payload as a JSON string
+    data = json.loads(activitypayload)
+
+    # Extract the file name, index, fields, and extracts container from the payload
+    file = data.get("file")
+    index = data.get("index_name")
+    fields = data.get("fields")
+    extracts_container = data.get("extract_container")
+
+    # Create a BlobServiceClient object which will be used to create a container client
+    blob_service_client = BlobServiceClient.from_connection_string(os.environ['STORAGE_CONN_STR'])
+
+    # Get a ContainerClient object for the extracts container
+    container_client = blob_service_client.get_container_client(container=extracts_container)
+
+    # Get a BlobClient object for the file
+    blob_client = container_client.get_blob_client(blob=file)
+
+    # Download the file as a string
+    file_data = (blob_client.download_blob().readall()).decode('utf-8')
+
+    # Load the file data as a JSON string
+    file_data =  json.loads(file_data)
+
+    # Filter the file data to only include the specified fields
+    file_data = {key: value for key, value in file_data.items() if key in fields}
+
+    # Insert the file data into the specified index
+    insert_documents_vector([file_data], index)
+
+    # Return the file name
+    return {'id': file_data['id'], 'sourcefile': file_data['sourcefile'], 'sourcepage': file_data['sourcepage']}
+
+@app.activity_trigger(input_name="activitypayload")
 def delete_records(activitypayload: str):
 
     # Load the activity payload as a JSON string
@@ -1989,6 +2067,45 @@ def delete_records(activitypayload: str):
 
     # Return the file name
     return deleted_records
+
+@app.activity_trigger(input_name="activitypayload")
+def get_ai_index_record_ids(activitypayload: str):
+
+    # Load the activity payload as a JSON string
+    data = json.loads(activitypayload)
+
+    # Extract the file name, index, fields, and extracts container from the payload
+    index = data.get("index_name")
+
+    record_ids = get_ids_from_all_docs(index)
+
+    # Return the file name
+    return record_ids
+
+@app.activity_trigger(input_name="activitypayload")
+def sync_ai_index(activitypayload: str):
+
+    # Load the activity payload as a JSON string
+    data = json.loads(activitypayload)
+
+    # Extract the file name, index, fields, and extracts container from the payload
+    index = data.get("index_name")
+    index_ids = data.get("index_ids")
+    expected_ids = data.get("expected_ids")
+
+    expected_ids = [x['id'] for x in expected_ids]
+
+    ids_to_remove = [x for x in index_ids if x not in expected_ids]
+    docs_to_remove = [{'id': x} for x in ids_to_remove]
+
+    deleted_records = delete_documents_vector(docs_to_remove, index)
+
+    return_records = []
+    for record in deleted_records:
+        return_records.append({'id': record['id'], 'sourcefile': record['sourcefile'], 'sourcepage': record['sourcepage']})
+
+    return return_records
+
 
 @app.activity_trigger(input_name="activitypayload")
 def convert_pdf_activity(activitypayload: str):
@@ -2066,7 +2183,6 @@ def get_active_index(req: func.HttpRequest) -> func.HttpResponse:
     latest_index, fields = get_current_index(stem_name)
 
     return latest_index
-
 
 @app.activity_trigger(input_name="activitypayload")
 def update_status_record(activitypayload: str):
