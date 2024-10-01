@@ -995,20 +995,17 @@ def qna_pair_generation_orchestrator(context):
 
     # Retrieve source documents
     source_files = yield context.call_activity("get_source_files", json.dumps({'source_container': extract_container,  'prefix': prefix_path, 'extensions': ['.json']}))
+    context.set_custom_status('Retrieved Source Files')
 
     # Review all documents and find those with content > len(250) - shuffle and filter step
-    try:
-        review_file_tasks = []
-        for file in source_files:
-            review_file_tasks.append(context.call_activity_with_retry("review_files_for_qna", retry_options, json.dumps({'source_container': extract_container, 'filename': file})))
-        reviewed_files = yield context.task_all(review_file_tasks)
-        reviewed_files = [x for x in reviewed_files if x is not None]
-        context.set_custom_status('Reviewed and shuffled chunks')
-    except Exception as e:
-        raise e
-
+    files_for_qna = yield context.call_activity("review_files_for_qna", json.dumps({'source_container': extract_container, 'files': source_files, 'qna_pair_count': target_pair_count}))
+    context.set_custom_status('Reviewed and shuffled chunks')
+   
     # Iterate over all documents and generate QnA pairs
-    data_for_qna = yield context.call_activity_with_retry("retrieve_files_for_qna", retry_options, json.dumps({'source_container': extract_container, 'files': reviewed_files, 'pair_count': target_pair_count}))
+    data_for_qna = yield context.call_activity_with_retry("retrieve_files_for_qna", retry_options, json.dumps({'source_container': extract_container, 'files': files_for_qna, 'pair_count': target_pair_count}))
+    context.set_custom_status('Retrieved Files for QnA Pair Generation')
+
+    qna_pairs = []
 
     try:
         qna_pairs_tasks = []
@@ -1163,27 +1160,33 @@ def review_files_for_qna(activitypayload: str):
     
     # Extract the source container, file extension, and prefix from the payload
     source_container = data.get("source_container")
-    file = data.get("filename")
+    files = data.get("files")
+    qna_pair_count = data.get("qna_pair_count")
     file_length_threshold = 250
+    random.shuffle(files)
+
+
     
     # Create a BlobServiceClient object which will be used to create a container client
     blob_service_client = BlobServiceClient.from_connection_string(os.environ['STORAGE_CONN_STR'])
                                                                    
     # Get a ContainerClient object from the BlobServiceClient
     container_client = blob_service_client.get_container_client(source_container)
+
+    return_files = []
     
     try:
-        # List all blobs in the container that start with the specified prefix
-        blob_client = container_client.get_blob_client(file)
+        for file in files:
+            blob_client = container_client.get_blob_client(file)
+            data = blob_client.download_blob().readall()
+            data = json.loads(data)
 
-        data = blob_client.download_blob().readall()
-        data = json.loads(data)
+            if len(data['content']) > file_length_threshold:
+                return_files.append(file)
 
-        if len(data['content']) > 250:
-            return file
-        
-        else:
-            return None
+            if len(return_files) == qna_pair_count:
+                break
+        return return_files
 
     except Exception as e:
         # If the container does not exist, return an empty list
