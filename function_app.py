@@ -1017,7 +1017,7 @@ def qna_pair_generation_orchestrator(context):
         pass
 
     saved_qna_file = yield context.call_activity("save_qna_pairs", json.dumps({'records': qna_pairs, 'source_container': extract_container}))
-
+    context.set_custom_status('Generated QnA Pairs')
     return saved_qna_file
 
 @app.orchestration_trigger(context_name="context")
