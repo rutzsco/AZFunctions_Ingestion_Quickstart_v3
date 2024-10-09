@@ -1062,6 +1062,46 @@ def sync_index_orchestrator(context):
 
     return ({'removed_document_ids': removed_documents, 'index_content': upsert_ids})
 
+
+@app.orchestration_trigger(context_name="context")
+def metadata_enrichment_orchestrator(context):
+
+    first_retry_interval_in_milliseconds = 5000
+    max_number_of_attempts = 2
+    retry_options = df.RetryOptions(first_retry_interval_in_milliseconds, max_number_of_attempts)
+    
+    # Get the input payload from the context
+    payload = context.get_input()
+    
+    # Extract the container name, index stem name, and prefix path from the payload
+    extract_container = payload.get("extract_container")
+    source_container = payload.get("source_container")
+    metadata_container = payload.get("metadata_container")
+    mapping = payload.get("mapping")
+    overwrite = payload.get("overwrite")
+
+    # Get extract files
+    try:
+        files = yield context.call_activity_with_retry("get_source_files", retry_options, json.dumps({'source_container': extract_container, 'extensions': ['.json']}))
+    except Exception as e:
+        raise e
+    files = [x for x in files if x is not None]
+
+    # Iterate over each extract file, pass mapping, source container, metadata container, and overwrite flag
+    enrichment_tasks = []
+    enriched_extracts = []
+    try:
+        for file in files:
+            enrichment_tasks.append(context.call_activity_with_retry("enrich_extract_metadata", retry_options, json.dumps({'file': file, 'mapping': mapping, 'extract_container': extract_container, 'metadata_container': metadata_container, 'overwrite': overwrite})))
+        enriched_extracts = yield context.task_all(enrichment_tasks)
+        enriched_extracts = [x for x in enriched_extracts if x is not None]
+    except Exception as e:
+        pass
+
+    # Return files with updated metadata
+
+    return ({'enriched_extracts': enriched_extracts})
+
 @app.activity_trigger(input_name="activitypayload")
 def save_qna_pairs(activitypayload: str):
 
@@ -2234,6 +2274,51 @@ def create_status_record(activitypayload: str):
     if type(response) == dict:
         return response
     return json.loads(response)
+
+@app.activity_trigger(input_name="activitypayload")
+def enrich_extract_metadata(activitypayload: str):
+
+    # Load the activity payload as a JSON string
+    data = json.loads(activitypayload)
+    file = data.get("file")
+    extract_container = data.get("extract_container")
+    metadata_container = data.get("metadata_container")
+    mapping = data.get("mapping")
+    overwrite = data.get("overwrite")
+
+    # Create a BlobServiceClient object which will be used to create a container client
+    blob_service_client = BlobServiceClient.from_connection_string(os.environ['STORAGE_CONN_STR'])
+
+    extract_container_client = blob_service_client.get_container_client(extract_container)
+    metadata_container_client = blob_service_client.get_container_client(metadata_container)
+
+    # Get a BlobClient object for the extract file
+
+    extract_blob_client = extract_container_client.get_blob_client(blob=file)
+
+    # Load the extract file as a JSON string
+    extract_data = json.loads((extract_blob_client.download_blob().readall()).decode('utf-8'))
+
+    # Get the source file name
+    source_file = extract_data['sourcefile']
+
+    return_record = {'file': file, 'added_attributes': []}
+
+    if source_file in mapping.keys():
+        metadata_file = mapping[source_file]
+
+        metadata_blob_client = metadata_container_client.get_blob_client(blob=metadata_file)
+
+        metadata = json.loads(metadata_blob_client.download_blob().readall())
+
+        for k,v in metadata.items():
+            if k not in extract_data.keys() or overwrite:
+                extract_data[k] = v
+                return_record['added_attributes'].append(k)
+        
+        extract_blob_client.upload_blob(json.dumps(extract_data), overwrite=True)
+    
+    return return_record
 
 def create_profile_record(data):
     cosmos_container = os.environ['COSMOS_PROFILE_CONTAINER']
