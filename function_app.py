@@ -299,7 +299,7 @@ def pdf_orchestrator(context):
             # Append the child file to the extracted_files list
             extracted_files.append(pdf['child'])
             # Create a task to process the PDF chunk and append it to the extract_pdf_tasks list
-            chunking_tasks.append(context.call_activity("chunk_extracts", json.dumps({'parent': file, 'extract_container': extract_container, 'doc_intel_formatted_results_container': doc_intel_formatted_results_container, 'image_analysis_results_container': image_analysis_results_container, 'overlapping_chunks': overlapping_chunks, 'chunk_size': chunk_size, 'overlap': overlap})))
+            chunking_tasks.append(context.call_activity("chunk_extracts", json.dumps({'parent': file, 'source_container': source_container, 'extract_container': extract_container, 'doc_intel_formatted_results_container': doc_intel_formatted_results_container, 'image_analysis_results_container': image_analysis_results_container, 'overlapping_chunks': overlapping_chunks, 'chunk_size': chunk_size, 'overlap': overlap})))
         # Execute all the extract PDF tasks and get the results
         chunked_pdf_files = yield context.task_all(chunking_tasks)
         chunked_pdf_files = [item for sublist in chunked_pdf_files for item in sublist]
@@ -1748,6 +1748,7 @@ def chunk_extracts(activitypayload: str):
     # Extract the child file name, parent file name, and container names from the payload
     parent = data.get("parent")
     extract_container = data.get("extract_container")
+    source_container = data.get("source_container")
     doc_intel_formatted_results_container = data.get("doc_intel_formatted_results_container")
     image_analysis_results_container = data.get("image_analysis_results_container")
     overlapping_chunks = data.get("overlapping_chunks")
@@ -1784,6 +1785,9 @@ def chunk_extracts(activitypayload: str):
             # Create a shortened file reference for the source file attached to the extract
             extract_data['sourcefileref'] = hashlib.md5(extract_data['sourcefile'].encode()).hexdigest() + '.' + extract_data['sourcefile'].split('.')[-1]
 
+            # Add the full file path to the extract data
+            extract_data['sourcefilepath'] = source_container + '/' + extract_data['sourcefile']
+
             # Load the image analysis file as a JSON string
             if image_analysis_client.exists():
                 image_analysis_data = json.loads(image_analysis_client.download_blob().readall())
@@ -1817,6 +1821,9 @@ def chunk_extracts(activitypayload: str):
 
             # Create a shortened file reference for the source file attached to the extract
             extract_data['sourcefileref'] = hashlib.md5(extract_data['sourcefile'].encode()).hexdigest() + '.' + extract_data['sourcefile'].split('.')[-1]
+
+            # Add the full file path to the extract data
+            extract_data['sourcefilepath'] = source_container + '/' + extract_data['sourcefile']
 
             # Load the image analysis file as a JSON string
             if image_analysis_client.exists():
