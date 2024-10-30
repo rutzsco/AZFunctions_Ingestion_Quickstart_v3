@@ -173,3 +173,5 @@ sample_data/AOAI*
 edxtesting
 
 txtav_scratch/*
+
+notebooks/.env
