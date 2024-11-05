@@ -1765,6 +1765,9 @@ def chunk_extracts(activitypayload: str):
     extract_container_client = blob_service_client.get_container_client(container=extract_container)
     doc_intel_formatted_results_container_client = blob_service_client.get_container_client(container=doc_intel_formatted_results_container)
     image_analysis_results_container_client = blob_service_client.get_container_client(container=image_analysis_results_container)
+    source_container_client = blob_service_client.get_container_client(container=source_container)
+    parent_blob_client = source_container_client.get_blob_client(blob=parent)
+    parent_metadata = parent_blob_client.get_blob_properties().metadata
 
     extracted_files = []
 
@@ -1805,6 +1808,9 @@ def chunk_extracts(activitypayload: str):
 
             extract_data['id'] = id
 
+            for k,v in parent_metadata.items():
+                extract_data[k] = v
+
             # Get a BlobClient object for the extracts file
             final_extract_blob_client = extract_container_client.get_blob_client(blob=file)
             final_extract_blob_client.upload_blob(json.dumps(extract_data), overwrite=True)
@@ -1841,6 +1847,9 @@ def chunk_extracts(activitypayload: str):
             id = hash_object.hexdigest()
 
             extract_data['id'] = id
+
+            for k,v in parent_metadata.items():
+                extract_data[k] = v
 
             page_number = int(extract_data['pagenumber'])
 
