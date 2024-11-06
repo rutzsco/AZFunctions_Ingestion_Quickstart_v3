@@ -1755,7 +1755,7 @@ def chunk_extracts(activitypayload: str):
     chunk_size = data.get("chunk_size")
     overlap = data.get("overlap")
 
-    prefix = parent.split('.')[0]
+    prefix, extension = os.path.splitext(parent)
 
 
     # Create a BlobServiceClient object which will be used to create a container client
