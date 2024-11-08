@@ -2425,7 +2425,9 @@ def convert_file_to_pdf(req: func.HttpRequest) -> func.HttpResponse:
     container = data.get("container")
     filename = data.get("filename")
 
-    updated_filename = filename.split('.')[0] + '.pdf'
+    root_filename, extension = os.path.splitext(filename)
+
+    updated_filename = root_filename + '.pdf'
 
     # Create a BlobServiceClient object which will be used to create a container client
     blob_service_client = BlobServiceClient.from_connection_string(os.environ['STORAGE_CONN_STR'])
