@@ -1000,6 +1000,9 @@ def qna_pair_generation_orchestrator(context):
     # Review all documents and find those with content > len(250) - shuffle and filter step
     files_for_qna = yield context.call_activity("review_files_for_qna", json.dumps({'source_container': extract_container, 'files': source_files, 'qna_pair_count': target_pair_count}))
     context.set_custom_status('Reviewed and shuffled chunks')
+
+    if len(files_for_qna) == 0:
+        raise Exception(f'No files found in the source container matching prefix: {prefix_path}.')
    
     # Iterate over all documents and generate QnA pairs
     data_for_qna = yield context.call_activity_with_retry("retrieve_files_for_qna", retry_options, json.dumps({'source_container': extract_container, 'files': files_for_qna, 'pair_count': target_pair_count}))
@@ -1226,11 +1229,12 @@ def review_files_for_qna(activitypayload: str):
 
             if len(return_files) == qna_pair_count:
                 break
-        return return_files
 
     except Exception as e:
         # If the container does not exist, return an empty list
         return None
+    
+    return return_files
 
 
 # Activities
