@@ -1218,8 +1218,9 @@ def review_files_for_qna(activitypayload: str):
 
     return_files = []
     
-    try:
-        for file in files:
+    
+    for file in files:
+        try:
             blob_client = container_client.get_blob_client(file)
             data = blob_client.download_blob().readall()
             data = json.loads(data)
@@ -1230,9 +1231,10 @@ def review_files_for_qna(activitypayload: str):
             if len(return_files) == qna_pair_count:
                 break
 
-    except Exception as e:
-        # If the container does not exist, return an empty list
-        return None
+        except Exception as e:
+            # If the container does not exist, return an empty list
+            # return None
+            pass
     
     return return_files
 
