@@ -1010,14 +1010,11 @@ def qna_pair_generation_orchestrator(context):
 
     qna_pairs = []
 
-    try:
-        qna_pairs_tasks = []
-        for extract in data_for_qna:
-            qna_pairs_tasks.append(context.call_activity_with_retry("generate_qna_pair", retry_options, json.dumps(extract)))
-        qna_pairs = yield context.task_all(qna_pairs_tasks)
-        qna_pairs = [x for x in qna_pairs if x is not None]
-    except Exception as e:
-        pass
+    qna_pairs_tasks = []
+    for extract in data_for_qna:
+        qna_pairs_tasks.append(context.call_activity_with_retry("generate_qna_pair", retry_options, json.dumps(extract)))
+    qna_pairs = yield context.task_all(qna_pairs_tasks)
+    qna_pairs = [x for x in qna_pairs if x is not None]
 
     saved_qna_file = yield context.call_activity("save_qna_pairs", json.dumps({'records': qna_pairs, 'source_container': extract_container}))
     context.set_custom_status('Generated QnA Pairs')
@@ -1147,7 +1144,10 @@ def generate_qna_pair(activitypayload: str):
     # Load the activity payload as a JSON string
     data = json.loads(activitypayload)
     
-    qna_pair = generate_qna_pair_helper(data['content'])
+    try:
+        qna_pair = generate_qna_pair_helper(data['content'])
+    except Exception as e:
+        qna_pair = {}
 
     qna_pair['chunk_id'] = data['id']
     qna_pair['sourcefile'] = data['sourcefile']
