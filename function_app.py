@@ -2443,6 +2443,7 @@ def convert_file_to_pdf(req: func.HttpRequest) -> func.HttpResponse:
 
     # Get a BlobClient object for the file
     blob_client = container_client.get_blob_client(blob=filename)
+    metadata = blob_client.get_blob_properties().metadata
 
     # Retrieve the file as a stream and load the bytes
     file_bytes = blob_client.download_blob().readall()
@@ -2456,6 +2457,7 @@ def convert_file_to_pdf(req: func.HttpRequest) -> func.HttpResponse:
 
     # Get a BlobClient object for the converted PDF file
     pdf_blob_client = container_client.get_blob_client(blob=updated_filename)
+    pdf_blob_client.set_blob_metadata(metadata)
 
     # Upload the PDF file
     pdf_blob_client.upload_blob(pdf_bytes, overwrite=True)
