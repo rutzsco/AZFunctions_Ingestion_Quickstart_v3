@@ -2457,10 +2457,10 @@ def convert_file_to_pdf(req: func.HttpRequest) -> func.HttpResponse:
 
     # Get a BlobClient object for the converted PDF file
     pdf_blob_client = container_client.get_blob_client(blob=updated_filename)
-    pdf_blob_client.set_blob_metadata(metadata)
 
     # Upload the PDF file
     pdf_blob_client.upload_blob(pdf_bytes, overwrite=True)
+    pdf_blob_client.set_blob_metadata(metadata)
 
     return json.dumps({'container': container, 'filename': updated_filename})
 
