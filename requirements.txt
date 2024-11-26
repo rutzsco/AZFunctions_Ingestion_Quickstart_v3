@@ -16,7 +16,8 @@ beautifulsoup4==4.12.3
 tiktoken==0.7.0
 pycryptodome==3.20.0
 filetype==1.2.0
-pillow==10.2.0
+pillow==10.3.0
 pymupdf==1.24.0
 pymupdfb==1.24.0
 pandas==2.0.2
+setuptools==75.6.0
