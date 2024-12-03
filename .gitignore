@@ -171,3 +171,8 @@ scratch/
 
 sample_data/AOAI*
 edxtesting
+
+txtav_scratch/*
+
+notebooks/.env
+local.settingsnwk.json

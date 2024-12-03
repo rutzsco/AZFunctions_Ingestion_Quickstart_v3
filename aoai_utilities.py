@@ -166,6 +166,9 @@ def classify_image(b64_image_bytes):
     while not processed:
         try:
             response = requests.post(endpoint, headers=headers, data=json.dumps(data)) 
+            if response.status_code == 429:
+                time.sleep(5)
+                continue 
             resp_str = response.json()['choices'][0]['message']['content']
             out_str = resp_str
             processed = True
@@ -232,6 +235,9 @@ def analyze_image(b64_image_bytes):
     while not processed:
         try:
             response = requests.post(endpoint, headers=headers, data=json.dumps(data)) 
+            if response.status_code == 429:
+                time.sleep(5)
+                continue
             resp_str = response.json()['choices'][0]['message']['content']
             out_str = resp_str
             processed = True
@@ -303,6 +309,9 @@ def generate_qna_pair_helper(content):
     while not processed:
         try:
             response = requests.post(endpoint, headers=headers, data=json.dumps(data)) 
+            if response.status_code == 429:
+                time.sleep(5)
+                continue
             resp_str = response.json()['choices'][0]['message']['content']
             out_str = resp_str
             processed = True

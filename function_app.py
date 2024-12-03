@@ -299,7 +299,7 @@ def pdf_orchestrator(context):
             # Append the child file to the extracted_files list
             extracted_files.append(pdf['child'])
             # Create a task to process the PDF chunk and append it to the extract_pdf_tasks list
-            chunking_tasks.append(context.call_activity("chunk_extracts", json.dumps({'parent': file, 'extract_container': extract_container, 'doc_intel_formatted_results_container': doc_intel_formatted_results_container, 'image_analysis_results_container': image_analysis_results_container, 'overlapping_chunks': overlapping_chunks, 'chunk_size': chunk_size, 'overlap': overlap})))
+            chunking_tasks.append(context.call_activity("chunk_extracts", json.dumps({'parent': file, 'source_container': source_container, 'extract_container': extract_container, 'doc_intel_formatted_results_container': doc_intel_formatted_results_container, 'image_analysis_results_container': image_analysis_results_container, 'overlapping_chunks': overlapping_chunks, 'chunk_size': chunk_size, 'overlap': overlap})))
         # Execute all the extract PDF tasks and get the results
         chunked_pdf_files = yield context.task_all(chunking_tasks)
         chunked_pdf_files = [item for sublist in chunked_pdf_files for item in sublist]
@@ -1000,6 +1000,9 @@ def qna_pair_generation_orchestrator(context):
     # Review all documents and find those with content > len(250) - shuffle and filter step
     files_for_qna = yield context.call_activity("review_files_for_qna", json.dumps({'source_container': extract_container, 'files': source_files, 'qna_pair_count': target_pair_count}))
     context.set_custom_status('Reviewed and shuffled chunks')
+
+    if len(files_for_qna) == 0:
+        raise Exception(f'No files found in the source container matching prefix: {prefix_path}.')
    
     # Iterate over all documents and generate QnA pairs
     data_for_qna = yield context.call_activity_with_retry("retrieve_files_for_qna", retry_options, json.dumps({'source_container': extract_container, 'files': files_for_qna, 'pair_count': target_pair_count}))
@@ -1007,14 +1010,11 @@ def qna_pair_generation_orchestrator(context):
 
     qna_pairs = []
 
-    try:
-        qna_pairs_tasks = []
-        for extract in data_for_qna:
-            qna_pairs_tasks.append(context.call_activity_with_retry("generate_qna_pair", retry_options, json.dumps(extract)))
-        qna_pairs = yield context.task_all(qna_pairs_tasks)
-        qna_pairs = [x for x in qna_pairs if x is not None]
-    except Exception as e:
-        pass
+    qna_pairs_tasks = []
+    for extract in data_for_qna:
+        qna_pairs_tasks.append(context.call_activity_with_retry("generate_qna_pair", retry_options, json.dumps(extract)))
+    qna_pairs = yield context.task_all(qna_pairs_tasks)
+    qna_pairs = [x for x in qna_pairs if x is not None]
 
     saved_qna_file = yield context.call_activity("save_qna_pairs", json.dumps({'records': qna_pairs, 'source_container': extract_container}))
     context.set_custom_status('Generated QnA Pairs')
@@ -1062,6 +1062,46 @@ def sync_index_orchestrator(context):
 
     return ({'removed_document_ids': removed_documents, 'index_content': upsert_ids})
 
+
+@app.orchestration_trigger(context_name="context")
+def metadata_enrichment_orchestrator(context):
+
+    first_retry_interval_in_milliseconds = 5000
+    max_number_of_attempts = 2
+    retry_options = df.RetryOptions(first_retry_interval_in_milliseconds, max_number_of_attempts)
+    
+    # Get the input payload from the context
+    payload = context.get_input()
+    
+    # Extract the container name, index stem name, and prefix path from the payload
+    extract_container = payload.get("extract_container")
+    source_container = payload.get("source_container")
+    metadata_container = payload.get("metadata_container")
+    mapping = payload.get("mapping")
+    overwrite = payload.get("overwrite")
+
+    # Get extract files
+    try:
+        files = yield context.call_activity_with_retry("get_source_files", retry_options, json.dumps({'source_container': extract_container, 'extensions': ['.json']}))
+    except Exception as e:
+        raise e
+    files = [x for x in files if x is not None]
+
+    # Iterate over each extract file, pass mapping, source container, metadata container, and overwrite flag
+    enrichment_tasks = []
+    enriched_extracts = []
+    try:
+        for file in files:
+            enrichment_tasks.append(context.call_activity_with_retry("enrich_extract_metadata", retry_options, json.dumps({'file': file, 'mapping': mapping, 'extract_container': extract_container, 'metadata_container': metadata_container, 'overwrite': overwrite})))
+        enriched_extracts = yield context.task_all(enrichment_tasks)
+        enriched_extracts = [x for x in enriched_extracts if x is not None]
+    except Exception as e:
+        pass
+
+    # Return files with updated metadata
+
+    return ({'enriched_extracts': enriched_extracts})
+
 @app.activity_trigger(input_name="activitypayload")
 def save_qna_pairs(activitypayload: str):
 
@@ -1104,7 +1144,10 @@ def generate_qna_pair(activitypayload: str):
     # Load the activity payload as a JSON string
     data = json.loads(activitypayload)
     
-    qna_pair = generate_qna_pair_helper(data['content'])
+    try:
+        qna_pair = generate_qna_pair_helper(data['content'])
+    except Exception as e:
+        qna_pair = {}
 
     qna_pair['chunk_id'] = data['id']
     qna_pair['sourcefile'] = data['sourcefile']
@@ -1175,8 +1218,9 @@ def review_files_for_qna(activitypayload: str):
 
     return_files = []
     
-    try:
-        for file in files:
+    
+    for file in files:
+        try:
             blob_client = container_client.get_blob_client(file)
             data = blob_client.download_blob().readall()
             data = json.loads(data)
@@ -1186,11 +1230,13 @@ def review_files_for_qna(activitypayload: str):
 
             if len(return_files) == qna_pair_count:
                 break
-        return return_files
 
-    except Exception as e:
-        # If the container does not exist, return an empty list
-        return None
+        except Exception as e:
+            # If the container does not exist, return an empty list
+            # return None
+            pass
+    
+    return return_files
 
 
 # Activities
@@ -1708,13 +1754,14 @@ def chunk_extracts(activitypayload: str):
     # Extract the child file name, parent file name, and container names from the payload
     parent = data.get("parent")
     extract_container = data.get("extract_container")
+    source_container = data.get("source_container")
     doc_intel_formatted_results_container = data.get("doc_intel_formatted_results_container")
     image_analysis_results_container = data.get("image_analysis_results_container")
     overlapping_chunks = data.get("overlapping_chunks")
     chunk_size = data.get("chunk_size")
     overlap = data.get("overlap")
 
-    prefix = parent.split('.')[0]
+    prefix, extension = os.path.splitext(parent)
 
 
     # Create a BlobServiceClient object which will be used to create a container client
@@ -1724,6 +1771,9 @@ def chunk_extracts(activitypayload: str):
     extract_container_client = blob_service_client.get_container_client(container=extract_container)
     doc_intel_formatted_results_container_client = blob_service_client.get_container_client(container=doc_intel_formatted_results_container)
     image_analysis_results_container_client = blob_service_client.get_container_client(container=image_analysis_results_container)
+    source_container_client = blob_service_client.get_container_client(container=source_container)
+    parent_blob_client = source_container_client.get_blob_client(blob=parent)
+    parent_metadata = parent_blob_client.get_blob_properties().metadata
 
     extracted_files = []
 
@@ -1744,6 +1794,9 @@ def chunk_extracts(activitypayload: str):
             # Create a shortened file reference for the source file attached to the extract
             extract_data['sourcefileref'] = hashlib.md5(extract_data['sourcefile'].encode()).hexdigest() + '.' + extract_data['sourcefile'].split('.')[-1]
 
+            # Add the full file path to the extract data
+            extract_data['sourcefilepath'] = source_container + '/' + extract_data['sourcefile']
+
             # Load the image analysis file as a JSON string
             if image_analysis_client.exists():
                 image_analysis_data = json.loads(image_analysis_client.download_blob().readall())
@@ -1760,6 +1813,9 @@ def chunk_extracts(activitypayload: str):
             id = hash_object.hexdigest()
 
             extract_data['id'] = id
+
+            for k,v in parent_metadata.items():
+                extract_data[k] = v
 
             # Get a BlobClient object for the extracts file
             final_extract_blob_client = extract_container_client.get_blob_client(blob=file)
@@ -1778,6 +1834,9 @@ def chunk_extracts(activitypayload: str):
             # Create a shortened file reference for the source file attached to the extract
             extract_data['sourcefileref'] = hashlib.md5(extract_data['sourcefile'].encode()).hexdigest() + '.' + extract_data['sourcefile'].split('.')[-1]
 
+            # Add the full file path to the extract data
+            extract_data['sourcefilepath'] = source_container + '/' + extract_data['sourcefile']
+
             # Load the image analysis file as a JSON string
             if image_analysis_client.exists():
                 image_analysis_data = json.loads(image_analysis_client.download_blob().readall())
@@ -1794,6 +1853,9 @@ def chunk_extracts(activitypayload: str):
             id = hash_object.hexdigest()
 
             extract_data['id'] = id
+
+            for k,v in parent_metadata.items():
+                extract_data[k] = v
 
             page_number = int(extract_data['pagenumber'])
 
@@ -2119,7 +2181,9 @@ def convert_pdf_activity(activitypayload: str):
     container = data.get("container")
     filename = data.get("filename")
 
-    updated_filename = filename.split('.')[0] + '.pdf'
+    root_filename, extension = os.path.splitext(filename)
+
+    updated_filename = root_filename + '.pdf'
 
     # Create a BlobServiceClient object which will be used to create a container client
     blob_service_client = BlobServiceClient.from_connection_string(os.environ['STORAGE_CONN_STR'])
@@ -2235,6 +2299,51 @@ def create_status_record(activitypayload: str):
         return response
     return json.loads(response)
 
+@app.activity_trigger(input_name="activitypayload")
+def enrich_extract_metadata(activitypayload: str):
+
+    # Load the activity payload as a JSON string
+    data = json.loads(activitypayload)
+    file = data.get("file")
+    extract_container = data.get("extract_container")
+    metadata_container = data.get("metadata_container")
+    mapping = data.get("mapping")
+    overwrite = data.get("overwrite")
+
+    # Create a BlobServiceClient object which will be used to create a container client
+    blob_service_client = BlobServiceClient.from_connection_string(os.environ['STORAGE_CONN_STR'])
+
+    extract_container_client = blob_service_client.get_container_client(extract_container)
+    metadata_container_client = blob_service_client.get_container_client(metadata_container)
+
+    # Get a BlobClient object for the extract file
+
+    extract_blob_client = extract_container_client.get_blob_client(blob=file)
+
+    # Load the extract file as a JSON string
+    extract_data = json.loads((extract_blob_client.download_blob().readall()).decode('utf-8'))
+
+    # Get the source file name
+    source_file = extract_data['sourcefile']
+
+    return_record = {'file': file, 'added_attributes': []}
+
+    if source_file in mapping.keys():
+        metadata_file = mapping[source_file]
+
+        metadata_blob_client = metadata_container_client.get_blob_client(blob=metadata_file)
+
+        metadata = json.loads(metadata_blob_client.download_blob().readall())
+
+        for k,v in metadata.items():
+            if k not in extract_data.keys() or overwrite:
+                extract_data[k] = v
+                return_record['added_attributes'].append(k)
+        
+        extract_blob_client.upload_blob(json.dumps(extract_data), overwrite=True)
+    
+    return return_record
+
 def create_profile_record(data):
     cosmos_container = os.environ['COSMOS_PROFILE_CONTAINER']
     cosmos_database = os.environ['COSMOS_DATABASE']
@@ -2322,7 +2431,9 @@ def convert_file_to_pdf(req: func.HttpRequest) -> func.HttpResponse:
     container = data.get("container")
     filename = data.get("filename")
 
-    updated_filename = filename.split('.')[0] + '.pdf'
+    root_filename, extension = os.path.splitext(filename)
+
+    updated_filename = root_filename + '.pdf'
 
     # Create a BlobServiceClient object which will be used to create a container client
     blob_service_client = BlobServiceClient.from_connection_string(os.environ['STORAGE_CONN_STR'])
@@ -2332,6 +2443,7 @@ def convert_file_to_pdf(req: func.HttpRequest) -> func.HttpResponse:
 
     # Get a BlobClient object for the file
     blob_client = container_client.get_blob_client(blob=filename)
+    metadata = blob_client.get_blob_properties().metadata
 
     # Retrieve the file as a stream and load the bytes
     file_bytes = blob_client.download_blob().readall()
@@ -2348,6 +2460,7 @@ def convert_file_to_pdf(req: func.HttpRequest) -> func.HttpResponse:
 
     # Upload the PDF file
     pdf_blob_client.upload_blob(pdf_bytes, overwrite=True)
+    pdf_blob_client.set_blob_metadata(metadata)
 
     return json.dumps({'container': container, 'filename': updated_filename})
 
