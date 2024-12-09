@@ -7,6 +7,7 @@ import hashlib
 from azure.storage.blob import BlobServiceClient
 from azure.cosmos import CosmosClient
 from pypdf import PdfReader, PdfWriter
+import pikepdf
 from io import BytesIO
 from datetime import datetime
 import filetype
@@ -137,6 +138,7 @@ def pdf_orchestrator(context):
         status_record['status'] = 1
         status_record['status_message'] = 'Starting Ingestion Process'
         status_record['processing_progress'] = 0.1
+        status_record['time_00_initiate'] = datetime.now().isoformat()
         if cosmos_logging:
             yield context.call_activity("update_status_record", json.dumps(status_record))
     except Exception as e:
@@ -192,7 +194,7 @@ def pdf_orchestrator(context):
             yield context.call_activity("update_status_record", json.dumps(status_record))
         raise Exception(f'No PDF files found in the source container matching prefix: {prefix_path}.')
 
-
+    status_record['time_01_retrieval'] = datetime.now().isoformat()
 
     # For each PDF file, split it into single-page chunks and save to pages container
     try:
@@ -228,6 +230,7 @@ def pdf_orchestrator(context):
     status_record['status_message'] = 'Splitting Completed'
     status_record['processing_progress'] = 0.2
     status_record['status'] = 1
+    status_record['time_02_splitting'] = datetime.now().isoformat()
     if cosmos_logging:
         yield context.call_activity("update_status_record", json.dumps(status_record))
 
@@ -257,6 +260,7 @@ def pdf_orchestrator(context):
     status_record['status_message'] = 'Document Extraction Completion'
     status_record['processing_progress'] = 0.6
     status_record['status'] = 1
+    status_record['time_03_extraction'] = datetime.now().isoformat()
     if cosmos_logging:
         yield context.call_activity("update_status_record", json.dumps(status_record))
 
@@ -288,6 +292,7 @@ def pdf_orchestrator(context):
     status_record['status_message'] = 'Image Analysis Completed'
     status_record['processing_progress'] = 0.7
     status_record['status'] = 1
+    status_record['time_04_image_analysis'] = datetime.now().isoformat()
     if cosmos_logging:
         yield context.call_activity("update_status_record", json.dumps(status_record))
 
@@ -318,6 +323,7 @@ def pdf_orchestrator(context):
     status_record['status_message'] = 'Extract Chunking Completed'
     status_record['processing_progress'] = 0.7
     status_record['status'] = 1
+    status_record['time_05_chunking'] = datetime.now().isoformat()
     if cosmos_logging:
         yield context.call_activity("update_status_record", json.dumps(status_record))
 
@@ -345,6 +351,7 @@ def pdf_orchestrator(context):
     status_record['status_message'] = 'Vectorization Completed'
     status_record['processing_progress'] = 0.8
     status_record['status'] = 1
+    status_record['time_06_vectorization'] = datetime.now().isoformat()
     if cosmos_logging:
         yield context.call_activity("update_status_record", json.dumps(status_record))
 
@@ -402,6 +409,7 @@ def pdf_orchestrator(context):
     status_record['status_message'] = 'Ingestion Completed'
     status_record['processing_progress'] = 1
     status_record['status'] = 10
+    status_record['time_07_indexing'] = datetime.now().isoformat()
     if cosmos_logging:
         yield context.call_activity("update_status_record", json.dumps(status_record))
 
@@ -441,6 +449,7 @@ def pdf_orchestrator(context):
     status_record['processed_documents'] = processed_documents
     status_record['indexed_documents'] = insert_results
     status_record['index_name'] = latest_index
+    status_record['time_08_completion'] = datetime.now().isoformat()
     if cosmos_logging:
         yield context.call_activity("update_status_record", json.dumps(status_record))
 
@@ -1413,7 +1422,7 @@ def split_pdf_files(activitypayload: str):
             raise Exception(f'{file} is not of type PDF. Detected MIME type: {kind.EXTENSION}')
 
         # Create a PdfReader object for the PDF file
-        pdf_reader = PdfReader(BytesIO(blob_data))
+        pdf_reader = pikepdf.open(BytesIO(blob_data))
 
         # Get the number of pages in the PDF file
         num_pages = len(pdf_reader.pages)
@@ -1423,15 +1432,18 @@ def split_pdf_files(activitypayload: str):
             # Create a new file name for the PDF chunk
             new_file_name = file.replace('.pdf', '') + '_page_' + str(i+1) + '.pdf'
 
+            new_pdf = pikepdf.Pdf.new()
+
             # Create a PdfWriter object
-            pdf_writer = PdfWriter()
+            # pdf_writer = PdfWriter()
             # Add the page to the PdfWriter object
-            pdf_writer.add_page(pdf_reader.pages[i])
+            new_pdf.pages.append(pdf_reader.pages[i])
+            # pdf_writer.add_page(pdf_reader.pages[i])
 
             # Create a BytesIO object for the output stream
             output_stream = BytesIO()
             # Write the PdfWriter object to the output stream
-            pdf_writer.write(output_stream)
+            new_pdf.save(output_stream)
 
             # Reset the position of the output stream to the beginning
             output_stream.seek(0)
