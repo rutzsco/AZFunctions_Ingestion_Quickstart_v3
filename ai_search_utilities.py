@@ -216,7 +216,7 @@ def create_vector_index(stem_name, user_fields, omit_timestamp=False, dimensions
         elif field_type == 'int':
             fields.append(SimpleField(name=field, type=SearchFieldDataType.Int32, searchable=False, filterable=True))
         elif field_type == 'datetime':
-            fields.append(SimpleField(name=field, type=SearchFieldDataType.DateTimeOffset, searchable=False, filterable=True))
+            fields.append(SimpleField(name=field, type=SearchFieldDataType.DateTimeOffset, searchable=False, filterable=True, sortable=True))
         elif field_type == 'double':
             fields.append(SimpleField(name=field, type=SearchFieldDataType.Double, searchable=False, filterable=True))
         elif field_type == 'bool':

@@ -7,6 +7,7 @@ import hashlib
 from azure.storage.blob import BlobServiceClient
 from azure.cosmos import CosmosClient
 from pypdf import PdfReader, PdfWriter
+import pikepdf
 from io import BytesIO
 from datetime import datetime
 import filetype
@@ -138,7 +139,7 @@ def pdf_orchestrator(context):
         status_record['status_message'] = 'Starting Ingestion Process'
         status_record['processing_progress'] = 0.1
         if cosmos_logging:
-            yield context.call_activity("update_status_record", json.dumps(status_record))
+            yield context.call_activity("update_status_record", json.dumps({** status_record, **{'time_key': 'time_00_initiate'}}))
     except Exception as e:
         pass
 
@@ -192,8 +193,6 @@ def pdf_orchestrator(context):
             yield context.call_activity("update_status_record", json.dumps(status_record))
         raise Exception(f'No PDF files found in the source container matching prefix: {prefix_path}.')
 
-
-
     # For each PDF file, split it into single-page chunks and save to pages container
     try:
         split_pdf_tasks = []
@@ -229,7 +228,7 @@ def pdf_orchestrator(context):
     status_record['processing_progress'] = 0.2
     status_record['status'] = 1
     if cosmos_logging:
-        yield context.call_activity("update_status_record", json.dumps(status_record))
+        yield context.call_activity("update_status_record", json.dumps({** status_record, **{'time_key': 'time_01_splitting'}}))
 
     # For each PDF page, process it with Document Intelligence and save the results to the document intelligence results (and formatted results) container
     try:
@@ -258,7 +257,7 @@ def pdf_orchestrator(context):
     status_record['processing_progress'] = 0.6
     status_record['status'] = 1
     if cosmos_logging:
-        yield context.call_activity("update_status_record", json.dumps(status_record))
+        yield context.call_activity("update_status_record", json.dumps({** status_record, **{'time_key': 'time_02_extraction'}}))
 
     #Analyze all pages and determine if there is additional visual content that should be described
     try:
@@ -289,7 +288,7 @@ def pdf_orchestrator(context):
     status_record['processing_progress'] = 0.7
     status_record['status'] = 1
     if cosmos_logging:
-        yield context.call_activity("update_status_record", json.dumps(status_record))
+        yield context.call_activity("update_status_record", json.dumps({** status_record, **{'time_key': 'time_03_image_analysis'}}))
 
     
     # Assemble chunks based on user specification
@@ -319,7 +318,7 @@ def pdf_orchestrator(context):
     status_record['processing_progress'] = 0.7
     status_record['status'] = 1
     if cosmos_logging:
-        yield context.call_activity("update_status_record", json.dumps(status_record))
+        yield context.call_activity("update_status_record", json.dumps({** status_record, **{'time_key': 'time_04_chunking'}}))
 
     # For each extracted PDF file, generate embeddings and save the results
     try:
@@ -346,7 +345,7 @@ def pdf_orchestrator(context):
     status_record['processing_progress'] = 0.8
     status_record['status'] = 1
     if cosmos_logging:
-        yield context.call_activity("update_status_record", json.dumps(status_record))
+        yield context.call_activity("update_status_record", json.dumps({** status_record, **{'time_key': 'time_05_vectorization'}}))
 
     ###################### DATA INGESTION END ######################
 
@@ -403,7 +402,7 @@ def pdf_orchestrator(context):
     status_record['processing_progress'] = 1
     status_record['status'] = 10
     if cosmos_logging:
-        yield context.call_activity("update_status_record", json.dumps(status_record))
+        yield context.call_activity("update_status_record", json.dumps({** status_record, **{'time_key': 'time_06_indexing'}}))
 
     
     ###################### DATA INDEXING END ######################
@@ -442,7 +441,7 @@ def pdf_orchestrator(context):
     status_record['indexed_documents'] = insert_results
     status_record['index_name'] = latest_index
     if cosmos_logging:
-        yield context.call_activity("update_status_record", json.dumps(status_record))
+        yield context.call_activity("update_status_record", json.dumps({** status_record, **{'time_key': 'time_07_completion'}}))
 
     # Return the list of parent files and processed documents as a JSON string
     return json.dumps({'parent_files': parent_files, 'processed_documents': processed_documents, 'indexed_documents': insert_results, 'index_name': latest_index})
@@ -1413,7 +1412,7 @@ def split_pdf_files(activitypayload: str):
             raise Exception(f'{file} is not of type PDF. Detected MIME type: {kind.EXTENSION}')
 
         # Create a PdfReader object for the PDF file
-        pdf_reader = PdfReader(BytesIO(blob_data))
+        pdf_reader = pikepdf.open(BytesIO(blob_data))
 
         # Get the number of pages in the PDF file
         num_pages = len(pdf_reader.pages)
@@ -1423,15 +1422,18 @@ def split_pdf_files(activitypayload: str):
             # Create a new file name for the PDF chunk
             new_file_name = file.replace('.pdf', '') + '_page_' + str(i+1) + '.pdf'
 
+            new_pdf = pikepdf.Pdf.new()
+
             # Create a PdfWriter object
-            pdf_writer = PdfWriter()
+            # pdf_writer = PdfWriter()
             # Add the page to the PdfWriter object
-            pdf_writer.add_page(pdf_reader.pages[i])
+            new_pdf.pages.append(pdf_reader.pages[i])
+            # pdf_writer.add_page(pdf_reader.pages[i])
 
             # Create a BytesIO object for the output stream
             output_stream = BytesIO()
             # Write the PdfWriter object to the output stream
-            pdf_writer.write(output_stream)
+            new_pdf.save(output_stream)
 
             # Reset the position of the output stream to the beginning
             output_stream.seek(0)
@@ -2256,6 +2258,12 @@ def update_status_record(activitypayload: str):
 
     # Load the activity payload as a JSON string
     data = json.loads(activitypayload)
+    try:
+        if 'time_key' in data.keys():
+            data[data['time_key']] = datetime.now().isoformat()
+            del data['time_key']
+    except Exception as e:
+        pass
     cosmos_container = os.environ['COSMOS_CONTAINER']
     cosmos_database = os.environ['COSMOS_DATABASE']
     cosmos_endpoint = os.environ['COSMOS_ENDPOINT']
@@ -2269,7 +2277,13 @@ def update_status_record(activitypayload: str):
     # Select the container
     container = database.get_container_client(cosmos_container)
 
-    response = container.upsert_item(data)
+    try:
+        existing_item = container.read_item(item=data['id'], partition_key=data['id'])
+        existing_item.update(data)
+        response = container.upsert_item(existing_item)
+    except Exception as e:
+
+        response = container.upsert_item(data)
     return True
 
 @app.activity_trigger(input_name="activitypayload")
