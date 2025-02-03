@@ -104,6 +104,20 @@ def pdf_orchestrator(context):
     embedding_model = payload.get("embedding_model")
     cosmos_logging = payload.get("cosmos_logging", True)
 
+    ################## Legacy Arguments ##################
+    overlapping_chunks = payload.get("overlapping_chunks")
+    chunk_size = payload.get("chunk_size")
+    overlap = payload.get("overlap")
+
+    if overlapping_chunks is not None:
+        if overlapping_chunks == False:
+            chunking_strategy = 'pagewise'
+        else:
+            chunking_strategy = 'fixed_size'
+            max_chunk_size = chunk_size
+            chunk_overlap = overlap
+    ########################################################
+
     valid_chunking_strategies = ['pagewise', 'fixed_size', 'semantic']
 
     if chunking_strategy not in valid_chunking_strategies:
@@ -505,6 +519,20 @@ def audio_video_orchestrator(context):
     cosmos_record_id = payload.get("cosmos_record_id")
     cosmos_logging = payload.get("cosmos_logging", True)
 
+    ################## Legacy Arguments ##################
+    overlapping_chunks = payload.get("overlapping_chunks")
+    chunk_size = payload.get("chunk_size")
+    overlap = payload.get("overlap")
+
+    if overlapping_chunks is not None:
+        if overlapping_chunks == False:
+            chunking_strategy = 'pagewise'
+        else:
+            chunking_strategy = 'fixed_size'
+            max_chunk_size = chunk_size
+            chunk_overlap = overlap
+    ########################################################
+
     valid_chunking_strategies = ['pagewise', 'fixed_size', 'semantic']
 
     if chunking_strategy not in valid_chunking_strategies:
@@ -811,6 +839,20 @@ def non_pdf_orchestrator(context):
     entra_id = payload.get("entra_id")
     session_id = payload.get("session_id")
     cosmos_record_id = payload.get("cosmos_record_id")
+
+    ################## Legacy Arguments ##################
+    overlapping_chunks = payload.get("overlapping_chunks")
+    chunk_size = payload.get("chunk_size")
+    overlap = payload.get("overlap")
+
+    if overlapping_chunks is not None:
+        if overlapping_chunks == False:
+            chunking_strategy = 'pagewise'
+        else:
+            chunking_strategy = 'fixed_size'
+            max_chunk_size = chunk_size
+            chunk_overlap = overlap
+    ########################################################
 
     valid_chunking_strategies = ['pagewise', 'fixed_size', 'semantic']
 
