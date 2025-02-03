@@ -21,7 +21,7 @@ import pandas as pd
 from doc_intelligence_utilities import analyze_pdf, extract_results
 from aoai_utilities import generate_embeddings, classify_image, analyze_image, get_transcription, generate_qna_pair_helper
 from ai_search_utilities import create_vector_index, get_current_index, insert_documents_vector, delete_documents_vector, get_ids_from_all_docs
-from chunking_utils import create_chunks, split_text
+from chunking_utils import create_chunks, split_text, create_semantic_chunks
 import tempfile
 import subprocess
 
@@ -66,9 +66,9 @@ def pdf_orchestrator(context):
     - index_name (str): The name of the index to which the documents will be added.
     - automatically_delete (bool): A flag indicating whether to automatically delete intermediate data.
     - analyze_images (bool): A flag indicating whether to analyze images for embedded visuals.
-    - overlapping_chunks (bool): A flag indicating whether to allow overlapping chunks. If false, page-wise chunks will be created.
-    - chunk_size (int): The size of the chunks to be created.
-    - overlap (int): The amount of overlap between chunks.  
+    - chunking_strategy (bool): A flag indicating whether to allow overlapping chunks. If false, page-wise chunks will be created.
+    - max_chunk_size (int): The size of the chunks to be created.
+    - chunk_overlap (int): The amount of chunk_overlap between chunks.  
     - embedding_model (str): The name of the embedding model to use for vectorization.
     - cosmos_logging (bool): A flag indicating whether to enable logging to CosmosDB, default is true.
   
@@ -95,14 +95,19 @@ def pdf_orchestrator(context):
     index_name = payload.get("index_name")
     automatically_delete = payload.get("automatically_delete")
     analyze_images = payload.get("analyze_images")
-    overlapping_chunks = payload.get("overlapping_chunks")
-    chunk_size = payload.get("chunk_size")
-    overlap = payload.get("overlap")
+    chunking_strategy = payload.get("chunking_strategy")
+    max_chunk_size = payload.get("max_chunk_size")
+    chunk_overlap = payload.get("chunk_overlap")
     entra_id = payload.get("entra_id")
     session_id = payload.get("session_id")
     cosmos_record_id = payload.get("cosmos_record_id")
     embedding_model = payload.get("embedding_model")
     cosmos_logging = payload.get("cosmos_logging", True)
+
+    valid_chunking_strategies = ['pagewise', 'fixed_size', 'semantic']
+
+    if chunking_strategy not in valid_chunking_strategies:
+        raise Exception(f"Invalid chunking strategy: {chunking_strategy}. Valid options are: {valid_chunking_strategies}")
     
     if cosmos_record_id is None:
         cosmos_record_id = context.instance_id
@@ -127,9 +132,9 @@ def pdf_orchestrator(context):
         status_record['index_name'] = index_name
         status_record['automatically_delete'] = automatically_delete
         status_record['analyze_images'] = analyze_images
-        status_record['overlapping_chunks'] = overlapping_chunks
-        status_record['chunk_size'] = chunk_size
-        status_record['overlap'] = overlap
+        status_record['chunking_strategy'] = chunking_strategy
+        status_record['max_chunk_size'] = max_chunk_size
+        status_record['chunk_overlap'] = chunk_overlap
         status_record['embedding_model'] = embedding_model
         status_record['cosmos_logging'] = cosmos_logging    
         status_record['id'] = cosmos_record_id
@@ -298,7 +303,7 @@ def pdf_orchestrator(context):
             # Append the child file to the extracted_files list
             extracted_files.append(pdf['child'])
             # Create a task to process the PDF chunk and append it to the extract_pdf_tasks list
-            chunking_tasks.append(context.call_activity("chunk_extracts", json.dumps({'parent': file, 'source_container': source_container, 'extract_container': extract_container, 'doc_intel_formatted_results_container': doc_intel_formatted_results_container, 'image_analysis_results_container': image_analysis_results_container, 'overlapping_chunks': overlapping_chunks, 'chunk_size': chunk_size, 'overlap': overlap})))
+            chunking_tasks.append(context.call_activity("chunk_extracts", json.dumps({'parent': file, 'source_container': source_container, 'extract_container': extract_container, 'doc_intel_formatted_results_container': doc_intel_formatted_results_container, 'image_analysis_results_container': image_analysis_results_container, 'chunking_strategy': chunking_strategy, 'max_chunk_size': max_chunk_size, 'chunk_overlap': chunk_overlap})))
         # Execute all the extract PDF tasks and get the results
         chunked_pdf_files = yield context.task_all(chunking_tasks)
         chunked_pdf_files = [item for sublist in chunked_pdf_files for item in sublist]
@@ -464,9 +469,9 @@ def audio_video_orchestrator(context):
     - prefix_path (str): The prefix path for the files to be processed.
     - index_name (str): The name of the index to which the documents will be added.
     - automatically_delete (bool): A flag indicating whether to automatically delete intermediate data.
-    - overlapping_chunks (bool): A flag indicating whether to allow overlapping chunks. If false, page-wise chunks will be created.
-    - chunk_size (int): The size of the chunks to be created.
-    - overlap (int): The amount of overlap between chunks.  
+    - chunking_strategy (bool): A flag indicating whether to allow overlapping chunks. If false, page-wise chunks will be created.
+    - max_chunk_size (int): The size of the chunks to be created.
+    - chunk_overlap (int): The amount of chunk_overlap between chunks.  
     - embedding_model (str): The name of the embedding model to use for vectorization.
   
     Returns:  
@@ -491,14 +496,20 @@ def audio_video_orchestrator(context):
     prefix_path = payload.get("prefix_path")
     index_name = payload.get("index_name")
     automatically_delete = payload.get("automatically_delete")
-    overlapping_chunks = payload.get("overlapping_chunks")
-    chunk_size = payload.get("chunk_size")
-    overlap = payload.get("overlap")
+    chunking_strategy = payload.get("chunking_strategy")
+    max_chunk_size = payload.get("max_chunk_size")
+    chunk_overlap = payload.get("chunk_overlap")
     embedding_model = payload.get("embedding_model")
     entra_id = payload.get("entra_id")
     session_id = payload.get("session_id")
     cosmos_record_id = payload.get("cosmos_record_id")
     cosmos_logging = payload.get("cosmos_logging", True)
+
+    valid_chunking_strategies = ['pagewise', 'fixed_size', 'semantic']
+
+    if chunking_strategy not in valid_chunking_strategies:
+        raise Exception(f"Invalid chunking strategy: {chunking_strategy}. Valid options are: {valid_chunking_strategies}")
+
     if cosmos_record_id is None:
         cosmos_record_id = context.instance_id
     if len(cosmos_record_id)==0:
@@ -521,9 +532,9 @@ def audio_video_orchestrator(context):
         status_record['prefix_path'] = prefix_path
         status_record['index_name'] = index_name
         status_record['automatically_delete'] = automatically_delete
-        status_record['overlapping_chunks'] = overlapping_chunks
-        status_record['chunk_size'] = chunk_size
-        status_record['overlap'] = overlap
+        status_record['chunking_strategy'] = chunking_strategy
+        status_record['max_chunk_size'] = max_chunk_size
+        status_record['chunk_overlap'] = chunk_overlap
         status_record['entra_id'] = entra_id
         status_record['session_id'] = session_id
         status_record['embedding_model'] = embedding_model
@@ -625,7 +636,7 @@ def audio_video_orchestrator(context):
     try:
         chunking_tasks = []
         for file in transcribed_audio_files:
-            chunking_tasks.append(context.call_activity("chunk_audio_video_transcripts", json.dumps({'parent': file, 'transcript_container': transcripts_container, 'extract_container': extract_container, 'overlapping_chunks': overlapping_chunks, 'chunk_size': chunk_size, 'overlap': overlap})))
+            chunking_tasks.append(context.call_activity("chunk_audio_video_transcripts", json.dumps({'parent': file, 'transcript_container': transcripts_container, 'extract_container': extract_container, 'chunking_strategy': chunking_strategy, 'max_chunk_size': max_chunk_size, 'chunk_overlap': chunk_overlap})))
         chunked_transcript_files = yield context.task_all(chunking_tasks)
         chunked_transcript_files = [item for sublist in chunked_transcript_files for item in sublist]
     except Exception as e:
@@ -792,14 +803,20 @@ def non_pdf_orchestrator(context):
     index_name = payload.get("index_name")
     automatically_delete = payload.get("automatically_delete")
     analyze_images = payload.get("analyze_images")
-    overlapping_chunks = payload.get("overlapping_chunks")
-    chunk_size = payload.get("chunk_size")
-    overlap = payload.get("overlap")
+    chunking_strategy = payload.get("chunking_strategy", "pagewise")
+    max_chunk_size = payload.get("max_chunk_size")
+    chunk_overlap = payload.get("chunk_overlap")
     embedding_model = payload.get("embedding_model")
     cosmos_logging = payload.get("cosmos_logging", True)
     entra_id = payload.get("entra_id")
     session_id = payload.get("session_id")
     cosmos_record_id = payload.get("cosmos_record_id")
+
+    valid_chunking_strategies = ['pagewise', 'fixed_size', 'semantic']
+
+    if chunking_strategy not in valid_chunking_strategies:
+        raise Exception(f"Invalid chunking strategy: {chunking_strategy}. Valid options are: {valid_chunking_strategies}")
+
     if cosmos_record_id is None:
         cosmos_record_id = context.instance_id
     if len(cosmos_record_id)==0:
@@ -823,9 +840,9 @@ def non_pdf_orchestrator(context):
         status_record['index_name'] = index_name
         status_record['automatically_delete'] = automatically_delete
         status_record['analyze_images'] = analyze_images
-        status_record['overlapping_chunks'] = overlapping_chunks
-        status_record['chunk_size'] = chunk_size
-        status_record['overlap'] = overlap
+        status_record['chunking_strategy'] = chunking_strategy
+        status_record['max_chunk_size'] = max_chunk_size
+        status_record['chunk_overlap'] = chunk_overlap
         status_record['embedding_model'] = embedding_model
         status_record['id'] = cosmos_record_id
         status_record['entra_id'] = entra_id
@@ -1740,7 +1757,6 @@ def transcribe_audio_video_files(activitypayload: str):
 @app.activity_trigger(input_name="activitypayload")
 def chunk_extracts(activitypayload: str):
     """
-    UPDATE!!!!
     Analyze a single page in a PDF to determine if there are charts, graphs, etc.
 
     Args:
@@ -1759,9 +1775,9 @@ def chunk_extracts(activitypayload: str):
     source_container = data.get("source_container")
     doc_intel_formatted_results_container = data.get("doc_intel_formatted_results_container")
     image_analysis_results_container = data.get("image_analysis_results_container")
-    overlapping_chunks = data.get("overlapping_chunks")
-    chunk_size = data.get("chunk_size")
-    overlap = data.get("overlap")
+    chunking_strategy = data.get("chunking_strategy")
+    max_chunk_size = data.get("max_chunk_size")
+    chunk_overlap = data.get("chunk_overlap")
 
     prefix, extension = os.path.splitext(parent)
 
@@ -1784,7 +1800,7 @@ def chunk_extracts(activitypayload: str):
 
     out_files = []
 
-    if overlapping_chunks==False:
+    if chunking_strategy=='pagewise':
         for file in extracted_files:
             # Get a BlobClient object for the extracts file
             extract_blob_client = doc_intel_formatted_results_container_client.get_blob_client(blob=file)
@@ -1823,7 +1839,7 @@ def chunk_extracts(activitypayload: str):
             final_extract_blob_client = extract_container_client.get_blob_client(blob=file)
             final_extract_blob_client.upload_blob(json.dumps(extract_data), overwrite=True)
             out_files.append(file)
-    else:
+    elif chunking_strategy=='fixed_size':
         chunks_content_dict = {}
         for file in extracted_files:
             # Get a BlobClient object for the extracts file
@@ -1863,7 +1879,7 @@ def chunk_extracts(activitypayload: str):
 
             chunks_content_dict[page_number] = extract_data
 
-        chunked_content = create_chunks(chunks_content_dict, chunk_size, overlap)
+        chunked_content = create_chunks(chunks_content_dict, max_chunk_size, chunk_overlap)
 
         for idx, chunk in enumerate(chunked_content):
             
@@ -1872,6 +1888,58 @@ def chunk_extracts(activitypayload: str):
             final_extract_blob_client = extract_container_client.get_blob_client(blob=filename)
             final_extract_blob_client.upload_blob(json.dumps(chunk), overwrite=True)
             out_files.append(filename)
+
+    elif chunking_strategy=='semantic':
+        chunks_content_dict = {}
+        for file in extracted_files:
+            # Get a BlobClient object for the extracts file
+            extract_blob_client = doc_intel_formatted_results_container_client.get_blob_client(blob=file)
+            image_analysis_client = image_analysis_results_container_client.get_blob_client(blob=file)
+
+            # Load the extracts file as a JSON string
+            extract_data = json.loads((extract_blob_client.download_blob().readall()).decode('utf-8'))
+
+            # Create a shortened file reference for the source file attached to the extract
+            extract_data['sourcefileref'] = hashlib.md5(extract_data['sourcefile'].encode()).hexdigest() + '.' + extract_data['sourcefile'].split('.')[-1]
+
+            # Add the full file path to the extract data
+            extract_data['sourcefilepath'] = source_container + '/' + extract_data['sourcefile']
+
+            # Load the image analysis file as a JSON string
+            if image_analysis_client.exists():
+                image_analysis_data = json.loads(image_analysis_client.download_blob().readall())
+
+
+                if len(image_analysis_data['visual_description'])>0:
+                    visual_description = image_analysis_data['visual_description']
+                    extract_data['content'] += f'\n\nVisual Components Description:\n{str(visual_description)}'
+                    extract_data['content'] = str(extract_data['content'])
+
+            id_str = extract_data['content'] + file
+            extract_data['content'] = extract_data['content'] + '<<PAGE NUMBER: ' + extract_data['pagenumber'] + '>>'
+            hash_object = hashlib.sha256()
+            hash_object.update(id_str.encode('utf-8'))
+            id = hash_object.hexdigest()
+
+            extract_data['id'] = id
+
+            for k,v in parent_metadata.items():
+                extract_data[k] = v
+
+            page_number = int(extract_data['pagenumber'])
+
+            chunks_content_dict[page_number] = extract_data
+
+        chunked_content = create_semantic_chunks(chunks_content_dict, max_chunk_size)
+
+        for idx, chunk in enumerate(chunked_content):
+            
+            # Get a BlobClient object for the extracts file
+            filename = f'{prefix}_chunk_{idx}.json'
+            final_extract_blob_client = extract_container_client.get_blob_client(blob=filename)
+            final_extract_blob_client.upload_blob(json.dumps(chunk), overwrite=True)
+            out_files.append(filename)
+
 
     return out_files
 
@@ -1896,9 +1964,9 @@ def chunk_audio_video_transcripts(activitypayload: str):
     parent = data.get("parent")
     extract_container = data.get("extract_container")
     transcript_container = data.get("transcript_container")
-    overlapping_chunks = data.get("overlapping_chunks")
-    chunk_size = data.get("chunk_size")
-    overlap = data.get("overlap")
+    chunking_strategy = data.get("chunking_strategy")
+    max_chunk_size = data.get("max_chunk_size")
+    chunk_overlap = data.get("chunk_overlap")
 
     prefix = parent.split('.')[0]
 
@@ -1917,7 +1985,7 @@ def chunk_audio_video_transcripts(activitypayload: str):
 
     out_files = []
 
-    if overlapping_chunks==False:
+    if chunking_strategy=='pagewise':
         for file in transcript_files:
             # Get a BlobClient object for the transcript file
             transcript_blob_client = transcript_container_client.get_blob_client(blob=file)
@@ -1949,14 +2017,47 @@ def chunk_audio_video_transcripts(activitypayload: str):
                 final_extract_blob_client = extract_container_client.get_blob_client(blob=filename)
                 final_extract_blob_client.upload_blob(json.dumps(extract_data), overwrite=True)
                 out_files.append(filename)
-    else:
+    elif chunking_strategy=='fixed_size':
         for file in transcript_files:
             transcript_blob_client = transcript_container_client.get_blob_client(blob=file)
             
             # Load the transcript file as a JSON string
             transcript_data = json.loads((transcript_blob_client.download_blob().readall()).decode('utf-8'))
 
-            chunks = split_text(transcript_data['content'], chunk_size, overlap)
+            chunks = split_text(transcript_data['content'], max_chunk_size, chunk_overlap)
+
+            chunks = [x[2] for x in chunks]
+
+            for idx, chunk in enumerate(chunks):
+
+                id_str = chunk + transcript_data['sourcefile'] + str(idx+1)
+                hash_object = hashlib.sha256()
+                hash_object.update(id_str.encode('utf-8'))
+                id = hash_object.hexdigest()
+
+                extract_data = {}
+                extract_data['id'] = id
+                extract_data['content'] = chunk
+                extract_data['sourcefile'] = transcript_data['sourcefile']
+                extract_data['chunkcount'] = idx+1
+                extract_data['category'] = transcript_data['category']
+                extract_data['sourcefileref'] = hashlib.md5(extract_data['sourcefile'].encode()).hexdigest() + '.' + extract_data['sourcefile'].split('.')[-1]
+
+                filename = file.split('.')[0] + f'_chunk_{idx+1}.json'
+
+                # Get a BlobClient object for the extracts file
+                final_extract_blob_client = extract_container_client.get_blob_client(blob=filename)
+                final_extract_blob_client.upload_blob(json.dumps(extract_data), overwrite=True)
+                out_files.append(filename)
+
+    elif chunking_strategy=='semantic':
+        for file in transcript_files:
+            transcript_blob_client = transcript_container_client.get_blob_client(blob=file)
+            
+            # Load the transcript file as a JSON string
+            transcript_data = json.loads((transcript_blob_client.download_blob().readall()).decode('utf-8'))
+
+            chunks = split_text(transcript_data['content'], max_chunk_size, 0)
 
             chunks = [x[2] for x in chunks]
 
