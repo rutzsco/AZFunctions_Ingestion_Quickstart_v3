@@ -6,6 +6,7 @@ import os
 import hashlib
 from azure.storage.blob import BlobServiceClient
 from azure.cosmos import CosmosClient
+from azure.identity import DefaultAzureCredential
 from pypdf import PdfReader, PdfWriter
 import pikepdf
 from io import BytesIO
@@ -16,7 +17,10 @@ from PIL import Image
 import io
 import base64
 import random
+import time
 import pandas as pd
+from azure.mgmt.datafactory import DataFactoryManagementClient
+from azure.mgmt.datafactory.models import TriggerResource
 
 from doc_intelligence_utilities import analyze_pdf, extract_results
 from aoai_utilities import generate_embeddings, classify_image, analyze_image, get_transcription, generate_qna_pair_helper
@@ -2678,3 +2682,211 @@ def list_files_in_container(req: func.HttpRequest) -> func.HttpResponse:
 
     return json.dumps(blobs)
 
+@app.route(route="create_update_cosmos_profile",  auth_level=func.AuthLevel.FUNCTION)
+def create_update_cosmos_profile(req: func.HttpRequest) -> func.HttpResponse:
+    # Get the JSON payload from the request
+    data = req.get_json()
+    id = data.get("id")
+    root_name = data.get("root_name")
+    system_message = data.get("system_message")
+    sample_questions = data.get("sample_questions", [])
+    embedding_model = data.get("embedding_model", "text-embedding-ada-002")
+    embedding_dimensions = data.get("embedding_dimensions", 1536)
+    chunking_strategy = data.get('chunking_strategy', 'semantic')
+    max_chunk_size = data.get('max_chunk_size', 800)
+    chunk_overlap = data.get('chunk_overlap', 0)
+
+    cosmos_container = os.environ['COSMOS_PROFILE_CONTAINER']
+    cosmos_database = os.environ['COSMOS_PROFILE_DATABASE']
+    cosmos_endpoint = os.environ['COSMOS_ENDPOINT']
+    cosmos_key = os.environ['COSMOS_KEY']
+
+    client = CosmosClient(cosmos_endpoint, DefaultAzureCredential())
+
+    # Select the database
+    database = client.get_database_client(cosmos_database)
+
+    # Select the container
+    container = database.get_container_client(cosmos_container)
+
+    ## Attempt to retrieve the record from cosmos here... if it exists then update it
+    ## If it does not exist then create it
+    client = CosmosClient(cosmos_endpoint, DefaultAzureCredential())
+
+    # Select the database
+    database = client.get_database_client(cosmos_database)
+
+    # Select the container
+    container = database.get_container_client(cosmos_container)
+
+    storage_created = False
+    search_created = False
+    adf_trigger_created = False
+
+     # lowercase, ascii-only string
+    container_stem = root_name.lower().encode('ascii', 'ignore').decode('ascii').replace(' ', '-')
+    source_container = container_stem + '-source'
+    extract_container = container_stem + '-extract'
+    index_name = ''
+    existing_upload_trigger_name = os.environ["REFERENCE_UPLOAD_TRIGGER_NAME"]
+    existing_delete_trigger_name = os.environ["REFERENCE_DELETE_TRIGGER_NAME"]
+
+    new_upload_trigger_name = f"{root_name}_FileUpload"
+    new_delete_trigger_name = f"{root_name}_FileDelete"
+
+    try:
+        existing_item = container.read_item(item=data['id'], partition_key=data['id'])
+        if 'IngestionSettings' in existing_item and 'source_container' in existing_item['IngestionSettings']:
+            storage_created = True
+        if 'RAGSettings' in existing_item and 'DocumentRetrievalIndexName' in existing_item['RAGSettings']:
+            search_created = True
+            index_name = existing_item['RAGSettings']['DocumentRetrievalIndexName']
+        if 'IngestionSettings' in existing_item and 'upload_trigger' in existing_item['IngestionSettings']:
+            adf_trigger_created = True
+    except Exception as e:
+        pass
+
+    # Create containers
+    if not storage_created:
+        try:
+            blob_service_client = BlobServiceClient.from_connection_string(os.environ['STORAGE_CONN_STR'])
+            blob_service_client.create_container(source_container)
+            blob_service_client.create_container(extract_container)
+        except Exception as e:
+            pass
+
+    # Create Index
+    if not search_created:
+        default_fields = {"content": "string", "pagenumber": "int", "sourcefile": "string", 
+            "sourcepage": "string", "category": "string", "entra_id": "string", "session_id": "string"
+        }
+
+        index_name = create_vector_index(stem_name=container_stem, user_fields=default_fields, omit_timestamp=False, dimensions=embedding_dimensions)
+
+    # Add triggers to ADF... (upload & delete)
+    if not adf_trigger_created:
+        subscription_id = os.environ['SUBSCRIPTION_ID']      # e.g. "12345678-1234-1234-1234-123456789abc"
+        resource_group = os.environ['RESOURCE_GROUP_NAME']   # e.g. "myResourceGroup"
+        factory_name   = os.environ['DATA_FACTORY_NAME']     # e.g. "myDataFactory"
+
+        credential = DefaultAzureCredential()
+        adf_client = DataFactoryManagementClient(credential, subscription_id)
+
+        ## ADF UPLOAD TRIGGER
+        existing_upload_trigger = adf_client.triggers.get(
+            resource_group_name=resource_group,
+            factory_name=factory_name,
+            trigger_name=existing_upload_trigger_name,
+        )
+
+        try:
+            stop = adf_client.triggers.begin_stop(resource_group_name=resource_group, factory_name=factory_name, trigger_name=new_upload_trigger_name)
+            while stop:
+                print("Stopping trigger...")
+                stop = adf_client.triggers.get(resource_group, factory_name, new_upload_trigger_name)
+                time.sleep(1)
+                if stop.properties.runtime_state == "Stopped":
+                    time.sleep(1)
+                    print("Trigger stopped successfully.")
+                    break
+        except Exception as e:
+            pass
+        
+        new_properties = existing_upload_trigger.properties
+        new_properties.blob_path_begins_with = f'/{source_container}/blobs/'
+        new_properties.pipelines[0].parameters['source_container'] = source_container
+        new_properties.pipelines[0].parameters['extract_container'] = extract_container
+        new_properties.pipelines[0].parameters['index_name'] = index_name
+
+        new_upload_trigger_resource = TriggerResource(
+            properties=new_properties,
+        )
+        new_upload_trigger_resource.name = new_upload_trigger_name
+
+        response = adf_client.triggers.create_or_update(
+            resource_group_name=resource_group,
+            factory_name=factory_name,
+            trigger_name=new_upload_trigger_name,           # This is the actual name used in Azure
+            trigger=new_upload_trigger_resource
+        )
+        adf_client.triggers.begin_start(resource_group_name=resource_group, factory_name=factory_name, trigger_name=new_upload_trigger_name).wait()
+        
+        ## ADF DELETE TRIGGER
+        existing_delete_trigger = adf_client.triggers.get(
+            resource_group_name=resource_group,
+            factory_name=factory_name,
+            trigger_name=existing_delete_trigger_name,
+        )
+        
+        new_properties = existing_delete_trigger.properties
+        new_properties.blob_path_begins_with = f'/{source_container}/blobs/'
+        new_properties.pipelines[0].parameters['source_container'] = source_container
+        new_properties.pipelines[0].parameters['extract_container'] = extract_container
+        new_properties.pipelines[0].parameters['index_name'] = index_name
+
+        try:
+            stop = adf_client.triggers.begin_stop(resource_group_name=resource_group, factory_name=factory_name, trigger_name=new_delete_trigger_name)
+            while stop:
+                print("Stopping trigger...")
+                stop = adf_client.triggers.get(resource_group, factory_name, new_delete_trigger_name)
+                time.sleep(1)
+                if stop.properties.runtime_state == "Stopped":
+                    print("Trigger stopped successfully.")
+                    time.sleep(1)
+                    break
+        except Exception as e:
+            pass
+
+        new_delete_trigger_resource = TriggerResource(
+            properties=new_properties,
+        )
+        new_delete_trigger_resource.name = new_delete_trigger_name
+
+        response = adf_client.triggers.create_or_update(
+            resource_group_name=resource_group,
+            factory_name=factory_name,
+            trigger_name=new_delete_trigger_name,           # This is the actual name used in Azure
+            trigger=new_delete_trigger_resource
+        )
+        adf_client.triggers.begin_start(resource_group_name=resource_group, factory_name=factory_name, trigger_name=new_delete_trigger_name)
+
+    default_record = {
+        "Name": root_name,
+        "id": id,
+        "Approach": "RAG",
+        "SecurityModel": "None",
+        "SecurityModelGroupMembership": [ "LocalDevUser" ],
+        "SampleQuestions": sample_questions,
+        "RAGSettings": {
+        "GenerateSearchQueryPluginName": "GenerateSearchQuery",
+        "GenerateSearchQueryPluginQueryFunctionName": "GenerateSearchQuery",
+        "DocumentRetrievalPluginName": "DocumentRetrieval",
+        "DocumentRetrievalPluginQueryFunctionName": "KwiecienV2",
+        "DocumentRetrievalIndexName": index_name,
+        "ChatSystemMessage": system_message,
+        "StorageContianer": source_container,
+        "CitationUseSourcePage": True,
+        "DocumentRetrievalDocumentCount": 50,
+        "UseSemanticRanker": True,
+        "SemanticConfigurationName": "Default"
+        },
+        "IngestionSettings":{
+            'chunking_strategy': chunking_strategy,
+            'max_chunk_size': max_chunk_size,
+            'chunk_overlap': chunk_overlap,
+            'source_container': source_container,
+            'extract_container': extract_container,
+            "upload_trigger": new_upload_trigger_name,
+            "delete_trigger": new_delete_trigger_name
+        }
+    }
+
+    try:
+        existing_item = container.read_item(item=data['id'], partition_key=data['id'])
+        existing_item.update(default_record)
+        response = container.upsert_item(existing_item)
+    except Exception as e:
+
+        response = container.upsert_item(default_record)
+
+    return json.dumps(dict(response))
