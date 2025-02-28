@@ -45,6 +45,150 @@ async def http_start(req: func.HttpRequest, client):
 
 # Orchestrators
 @app.orchestration_trigger(context_name="context")
+def main_ingestion_orchestrator(context):
+
+    first_retry_interval_in_milliseconds = 5000
+    max_number_of_attempts = 2
+    retry_options = df.RetryOptions(first_retry_interval_in_milliseconds, max_number_of_attempts)
+
+    ###################### DATA INGESTION START ######################
+    
+    # Get the input payload from the context
+    payload = context.get_input()
+    
+    # Extract the container names from the payload
+    source_container = payload.get("source_container")
+    extract_container = payload.get("extract_container")
+    prefix_path = payload.get("prefix_path")
+    index_name = payload.get("index_name")
+    automatically_delete = payload.get("automatically_delete")
+    analyze_images = payload.get("analyze_images")
+    chunking_strategy = payload.get("chunking_strategy", "pagewise")
+    max_chunk_size = payload.get("max_chunk_size")
+    chunk_overlap = payload.get("chunk_overlap")
+    embedding_model = payload.get("embedding_model")
+    cosmos_logging = payload.get("cosmos_logging", True)
+    entra_id = payload.get("entra_id")
+    session_id = payload.get("session_id")
+    cosmos_record_id = payload.get("cosmos_record_id")
+
+    ################## Legacy Arguments ##################
+    overlapping_chunks = payload.get("overlapping_chunks")
+    chunk_size = payload.get("chunk_size")
+    overlap = payload.get("overlap")
+
+    if overlapping_chunks is not None:
+        if overlapping_chunks == False:
+            chunking_strategy = 'pagewise'
+        else:
+            chunking_strategy = 'fixed_size'
+            max_chunk_size = chunk_size
+            chunk_overlap = overlap
+    ########################################################
+
+    valid_chunking_strategies = ['pagewise', 'fixed_size', 'semantic']
+
+    if chunking_strategy not in valid_chunking_strategies:
+        raise Exception(f"Invalid chunking strategy: {chunking_strategy}. Valid options are: {valid_chunking_strategies}")
+
+    if cosmos_record_id is None:
+        cosmos_record_id = context.instance_id
+    if len(cosmos_record_id)==0:
+        cosmos_record_id = context.instance_id
+
+    # Create a status record in cosmos that can be updated throughout the course of this ingestion job
+    try:
+        if cosmos_logging:
+            payload = yield context.call_activity("create_status_record", json.dumps({'cosmos_id': cosmos_record_id, 'user_id': entra_id}))
+            context.set_custom_status('Created Cosmos Record Successfully')
+    except Exception as e:
+        context.set_custom_status('Failed to Create Cosmos Record')
+        pass
+
+    # Create a status record that can be used to update CosmosDB
+    try:
+        status_record = payload
+        status_record['source_container'] = source_container
+        status_record['extract_container'] = extract_container
+        status_record['prefix_path'] = prefix_path
+        status_record['index_name'] = index_name
+        status_record['automatically_delete'] = automatically_delete
+        status_record['analyze_images'] = analyze_images
+        status_record['chunking_strategy'] = chunking_strategy
+        status_record['max_chunk_size'] = max_chunk_size
+        status_record['chunk_overlap'] = chunk_overlap
+        status_record['embedding_model'] = embedding_model
+        status_record['id'] = cosmos_record_id
+        status_record['entra_id'] = entra_id
+        status_record['session_id'] = session_id
+        status_record['status'] = 1
+        status_record['status_message'] = 'Starting Ingestion Process'
+        status_record['processing_progress'] = 0.1
+        status_record['userId'] = entra_id
+        status_record['cosmos_record_id'] = cosmos_record_id
+        if cosmos_logging:
+            yield context.call_activity("update_status_record", json.dumps(status_record))
+    except Exception as e:
+        pass
+
+    # Get source files
+    try:
+        files = yield context.call_activity_with_retry("get_source_files", retry_options, json.dumps({'source_container': source_container, 'extensions': ['.doc', '.docx', '.dot', '.dotx', '.odt', '.ott', '.fodt', '.sxw', '.stw', '.uot', '.rtf', '.txt', '.xls', '.xlsx', '.xlsm', '.xlt', '.xltx', '.ods', '.ots', '.fods', '.sxc', '.stc', '.uos', '.csv', '.ppt', '.pptx', '.pps', '.ppsx', '.pot', '.potx', '.odp', '.otp', '.fodp', '.sxi', '.sti', '.uop', '.odg', '.otg', '.fodg', '.sxd', '.std', '.svg', '.html', '.htm', '.xps', '.epub', '.pdf', '.vtt','.mp3', '.mp4', '.mpweg', '.mpga', '.m4a', '.wav', '.webm' ], 'prefix': prefix_path}))
+        context.set_custom_status('Retrieved Source Files')
+    except Exception as e:
+        context.set_custom_status('Ingestion Failed During File Retrieval')
+        status_record['status'] = -1
+        status_record['status_message'] = 'Ingestion Failed During File Retrieval'
+        status_record['error_message'] = str(e)
+        status_record['processing_progress'] = 0.0
+        if cosmos_logging:
+            yield context.call_activity("update_status_record", json.dumps(status_record))
+        logging.error(e)
+        raise e
+
+    # Determine file types
+    try:
+        file_type_checking_tasks = []
+        for file in files:
+            file_type_checking_tasks.append(context.call_activity_with_retry("get_orchestration_path", retry_options, json.dumps({'container': source_container, 'file': file})))
+        checked_files = yield context.task_all(file_type_checking_tasks)
+        context.set_custom_status('Checked File Types')
+    except Exception as e:
+        context.set_custom_status('Ingestion Failed During File Type Checking')
+        status_record['status'] = -1
+        status_record['status_message'] = 'Ingestion Failed During File Type Checking'
+        status_record['error_message'] = str(e)
+        status_record['processing_progress'] = 0.0
+        if cosmos_logging:
+            yield context.call_activity("update_status_record", json.dumps(status_record))
+        logging.error(e)
+        raise e
+    
+    status_record['status_message'] = 'Checked File Type'
+    status_record['processing_progress'] = 0.1
+    status_record['status'] = 1
+    if cosmos_logging:
+        yield context.call_activity("update_status_record", json.dumps(status_record))
+
+    # Call the PDF orchestrator to process the PDF file
+    try:
+        sub_orchestration_tasks = []
+        for file in checked_files:
+            updated_payload = context.get_input()
+            updated_payload['prefix_path'] = file['file']
+            updated_payload['cosmos_record_id'] = cosmos_record_id
+            if file['orchestrator'] == 'pdf_orchestrator':
+                sub_orchestration_tasks.append(context.call_sub_orchestrator("pdf_orchestrator", updated_payload))
+            elif file['orchestrator'] == 'audio_video_orchestrator':
+                sub_orchestration_tasks.append(context.call_sub_orchestrator("audio_video_orchestrator", updated_payload))
+            else:
+                sub_orchestration_tasks.append(context.call_sub_orchestrator("non_pdf_orchestrator", updated_payload))
+        results = yield context.task_all(sub_orchestration_tasks)
+    except Exception as e:
+        raise e
+    context.set_custom_status('Sub-Orchestrations Completed')
+
+@app.orchestration_trigger(context_name="context")
 def pdf_orchestrator(context):
     """  
     Orchestrates the processing of PDF files for ingestion, analysis, and indexing.  
@@ -2361,6 +2505,31 @@ def convert_pdf_activity(activitypayload: str):
 
     return json.dumps({'container': container, 'filename': updated_filename})
 
+@app.activity_trigger(input_name="activitypayload")
+def get_orchestration_path(activitypayload: str):
+
+    data = json.loads(activitypayload)
+    container = data.get("container")
+    file = data.get("file")
+
+    blob_service_client = BlobServiceClient.from_connection_string(os.environ['STORAGE_CONN_STR'])
+    container_client = blob_service_client.get_container_client(container=container)
+
+    blob_client = container_client.get_blob_client(blob=file)
+    blob_data = blob_client.download_blob().readall()
+
+    kind = filetype.guess(blob_data)
+    if not kind:
+        return {'file': file, 'orchestrator': 'non_pdf_orchestrator'}
+    else:
+        if kind.EXTENSION == 'pdf':
+            return {'file': file, 'orchestrator': 'pdf_orchestrator'}
+        elif kind.EXTENSION.lower() in ['mp3', 'mp4', 'mpweg', 'mpga', 'm4a', 'wav', 'webm']:
+            return {'file': file, 'orchestrator': 'audio_video_orchestrator'}
+        else:
+            return {'file': file, 'orchestrator': 'non_pdf_orchestrator'}
+
+
 # Standalone Functions
 
 # This function creates a new index
@@ -2625,41 +2794,78 @@ def convert_file_to_pdf(req: func.HttpRequest) -> func.HttpResponse:
 
     return json.dumps({'container': container, 'filename': updated_filename})
 
-def convert_to_pdf_helper(input_bytes):
+import time
+def convert_to_pdf_helper(input_bytes, input_extension='.docx', timeout=10):
     """
     Converts a document to PDF using LibreOffice and returns the PDF as a byte string.
-
-    :param input_bytes: The content of the input document as bytes.
-    :return: The PDF content as a byte string.
+    Intended for use within an Azure Durable Function activity.
     """
-    # Create a temporary directory
+    logging.info("Starting PDF conversion.")
     with tempfile.TemporaryDirectory() as tmpdirname:
+        logging.info(f"Temporary directory created: {tmpdirname}")
 
-        input_path = os.path.join(tmpdirname, 'temp_input')
+        input_filename = f'temp_input{input_extension}'
+        input_path = os.path.join(tmpdirname, input_filename)
         output_path = os.path.join(tmpdirname, 'temp_input.pdf')
-      
+
         # Write the input bytes to the temporary file
         with open(input_path, 'wb') as f:
             f.write(input_bytes)
+        logging.info(f"Wrote input file: {input_path}")
 
-        # Convert the document to PDF using LibreOffice
+        # Build the conversion command
+        # command = [
+        #     'libreoffice', '--headless', '--convert-to', 'pdf',
+        #     '--outdir', tmpdirname, input_path
+        # ]
         command = [
-            'libreoffice', '--headless', '--convert-to', 'pdf', '--outdir', tmpdirname, input_path
+             r"C:\Program Files\LibreOffice\program\soffice.exe", '--headless', '--convert-to', 'pdf',
+            '--outdir', tmpdirname, input_path
         ]
-        out = None
-        try:
-            subprocess.run(command, check=True)
-        except Exception as e:
-            out = e
-            print(f"An error occurred: {e}")
+        logging.info(f"Running command: {' '.join(command)}")
 
-        print(os.listdir(tmpdirname))
+        try:
+            result = subprocess.run(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=True
+            )
+            logging.info("LibreOffice conversion command executed.")
+            logging.debug(f"stdout: {result.stdout.decode()}")
+            logging.debug(f"stderr: {result.stderr.decode()}")
+        except subprocess.CalledProcessError as e:
+            error_msg = (
+                f"LibreOffice conversion failed with error code {e.returncode}\n"
+                f"stdout: {e.stdout.decode()}\n"
+                f"stderr: {e.stderr.decode()}"
+            )
+            logging.error(error_msg)
+            raise RuntimeError(error_msg)
+
+        # Wait for the output file to appear (with retries)
+        start_time = time.time()
+        while not os.path.exists(output_path):
+            elapsed = time.time() - start_time
+            if elapsed > timeout:
+                available_files = os.listdir(tmpdirname)
+                error_msg = (
+                    f"Conversion timed out after {timeout} seconds. "
+                    f"Expected output file not found. "
+                    f"Available files in temp dir: {available_files}"
+                )
+                logging.error(error_msg)
+                raise FileNotFoundError(error_msg)
+            logging.debug("Output PDF not found yet. Waiting...")
+            time.sleep(0.5)
+
+        logging.info(f"Output file found: {output_path}")
 
         # Read the output PDF file as a byte string
         with open(output_path, 'rb') as f:
             pdf_bytes = f.read()
-    
-    # Return the PDF bytes
+        logging.info("PDF file read successfully.")
+
     return pdf_bytes
 
 @app.route(route="list_files_in_container", auth_level=func.AuthLevel.FUNCTION)
