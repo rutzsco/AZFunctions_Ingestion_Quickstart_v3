@@ -1,7 +1,9 @@
-from azure.ai.formrecognizer import DocumentAnalysisClient, AnalyzeResult
+# from azure.ai.formrecognizer import DocumentAnalysisClient, AnalyzeResult
 from azure.core.credentials import AzureKeyCredential
 import os
 import time
+from azure.ai.documentintelligence import DocumentIntelligenceClient
+from azure.ai.documentintelligence.models import AnalyzeDocumentRequest, DocumentContentFormat, DocumentAnalysisFeature, AnalyzeResult
 
 def table_to_html(table):
     """
@@ -26,8 +28,10 @@ def table_to_html(table):
             # Use "th" for header cells and "td" for data cells
             tag = "th" if (cell.kind == "columnHeader" or cell.kind == "rowHeader") else "td"
             cell_spans = ""
-            if cell.column_span > 1: cell_spans += f" colSpan={cell.column_span}"
-            if cell.row_span > 1: cell_spans += f" rowSpan={cell.row_span}"
+            if cell.column_span != None:
+                if cell.column_span > 1: cell_spans += f" colSpan={cell.column_span}"
+            if cell.row_span != None:
+                if cell.row_span > 1: cell_spans += f" rowSpan={cell.row_span}"
             # Escape the cell content to prevent HTML injection
             table_html += f"<{tag}{cell_spans}>{html.escape(cell.content)}</{tag}>"
         table_html +="</tr>"
@@ -47,7 +51,8 @@ def extract_results(afr_result, source_file_name):
     """
     import re
 
-    afr_result = AnalyzeResult.from_dict(afr_result)
+    # afr_result = AnalyzeResult.from_dict(afr_result)
+    afr_result = AnalyzeResult(afr_result)
     
     # Define the regex pattern to extract page ranges from file names
     pattern = r'__(\d+)-(\d+)\.pdf'
@@ -65,7 +70,10 @@ def extract_results(afr_result, source_file_name):
     # Process each page in the analysis result
     for page_num, page in enumerate(afr_result.pages):
         # Identify tables present on the current page
-        tables_on_page = [table for table in afr_result.tables if table.bounding_regions[0].page_number == page_num + 1]
+        if afr_result.tables is None:
+            tables_on_page = []
+        else:
+            tables_on_page = [table for table in afr_result.tables if table.bounding_regions[0].page_number == page_num + 1]
 
         # Prepare to mark table characters in the page text
         page_offset = page.spans[0].offset
@@ -97,25 +105,29 @@ def extract_results(afr_result, source_file_name):
         page_map.append((actual_page_num, page_text, new_file_name, source_file_name))
     return page_map
 
+# Analyze a document using Azure Document Intelligence's "prebuilt-document" model
 def analyze_pdf(data):
 
-    document_analysis_client = DocumentAnalysisClient(endpoint=os.environ['DOC_INTEL_ENDPOINT'], credential=AzureKeyCredential(os.environ['DOC_INTEL_KEY']))
+    document_analysis_client = DocumentIntelligenceClient(endpoint=os.environ['DOC_INTEL_ENDPOINT'], 
+    credential=AzureKeyCredential(os.environ['DOC_INTEL_KEY']))
     json_result = {}
 
     processed = False
     while not processed:
         try:
             # Begin analysis of the document  
-            poller = document_analysis_client.begin_analyze_document("prebuilt-document", data)  
-            processed = True
+            poller = document_analysis_client.begin_analyze_document("prebuilt-layout", AnalyzeDocumentRequest(bytes_source=data), 
+                                                                     output_content_format=DocumentContentFormat.MARKDOWN,
+                                                                     features=[DocumentAnalysisFeature.KEY_VALUE_PAIRS])  
             
             # Get the result of the analysis  
             result = poller.result()  
-
-            # Convert the result to a dictionary  
-            json_result = result.to_dict()  
+            result = result.as_dict()
+            
+            processed = True
         except Exception as e:
             time.sleep(5)
             print(e)
+            
 
-    return json_result
+    return result
